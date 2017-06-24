@@ -1,0 +1,18 @@
+## Celery related setting: this is the default setting once we install RabbitMQ
+
+# CELERY_RESULT_BACKEND ="amqp://"
+
+# BROKER_USER = 'guest'
+# BROKER_ENCRYPTED_PASSWORD = '98BC9FF413F3C5F993FD2400ECFA0EBD'
+# BROKER_HOST = '10.21.23.139'
+# BROKER_PORT = 5672
+
+# BROKER_URL = "amqp://guest:guest@10.21.23.139:5672//"
+
+# CELERY_IMPORTS=("orca.tasks.tasks",)
+# CELERY_ACCEPT_CONTENT = ['pickle', 'json', 'msgpack', 'yaml']
+# CELERY_CREATE_MISSING_QUEUES = True
+# CELERY_DEFAULT_QUEUE = 'hicloud.deploy.service.impl'
+# CELERY_DEFAULT_EXCHANGE = 'hicloud.deploy.service.impl'
+# CELERY_DEFAULT_ROUTING_KEY = 'hicloud.deploy.service.impl'
+# C_FORCE_ROOT = 1

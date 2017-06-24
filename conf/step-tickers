@@ -1,0 +1,3 @@
+# List of NTP servers used by the ntpdate service.
+
+# prepend customized ntp servers above

@@ -1,0 +1,69 @@
+# coding=utf-8
+import lazypy
+import logging
+import os
+import os.path
+
+# default setting
+CONFIG_DIR = os.environ.get('ENERGY_SAVING_CONFIG_DIR', '/etc/energy_saving')
+
+DATABASE_TYPE = 'mysql'
+DATABASE_USER = 'root'
+DATABASE_PASSWORD = 'root'
+DATABASE_IP = '127.0.0.1'
+DATABASE_PORT = 3306
+DATABASE_SERVER = lazypy.delay(
+    lambda: '%s:%s' % (DATABASE_IP, DATABASE_PORT)
+)
+DATABASE_NAME = 'energy_saving'
+DATABASE_URI = lazypy.delay(
+    lambda: '%s://%s:%s@%s/%s' % (
+        lazypy.force(DATABASE_TYPE),
+        lazypy.force(DATABASE_USER),
+        lazypy.force(DATABASE_PASSWORD),
+        lazypy.force(DATABASE_SERVER),
+        lazypy.force(DATABASE_NAME)
+    )
+)
+
+SQLALCHEMY_DATABASE_POOL_TYPE = 'instant'
+SQLALCHEMY_DEFAULT_ORDER_BY = 'created_at,desc'
+
+DEFAULT_LOGLEVEL = 'debug'
+DEFAULT_LOGDIR = '/var/log/orca'
+DEFAULT_LOGINTERVAL = 6
+DEFAULT_LOGINTERVAL_UNIT = 'h'
+DEFAULT_LOGFORMAT = (
+    '%(asctime)s - %(filename)s - %(lineno)d - %(levelname)s - %(message)s')
+DEFAULT_LOGBACKUPCOUNT = 5
+WEB_LOGFILE = 'web.log'
+CELERY_LOGFILE = 'celery.log'
+CELERYCONFIG_DIR = lazypy.delay(lambda: '%s' % CONFIG_DIR)
+CELERYCONFIG_FILE = 'celeryconfig'
+
+WEB_DIR = '/var/www/energy_saving_web'
+
+if (
+    'ENERGY_SAVING_SETTINGS' in os.environ and
+    os.environ['ENERGY_SAVING_SETTINGS']
+):
+    SETTINGS = os.environ['ENERGY_SAVING_SETTINGS']
+else:
+    SETTINGS = '%s/settings' % CONFIG_DIR
+if os.path.exists(SETTINGS):
+    try:
+        logging.info('load settings from %s', SETTINGS)
+        execfile(SETTINGS, globals(), locals())
+    except Exception as error:
+        logging.exception(error)
+        raise error
+else:
+    logging.error(
+        'ignore unexisting setting file %s', SETTINGS
+    )
+
+
+CONFIG_VARS = vars()
+for key, value in CONFIG_VARS.items():
+    if isinstance(value, lazypy.Promise):
+        CONFIG_VARS[key] = lazypy.force(value)

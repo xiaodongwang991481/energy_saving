@@ -1,0 +1,8 @@
+discover
+mock
+unittest2
+testtools
+testrepository
+mimeparse
+coverage
+hacking
