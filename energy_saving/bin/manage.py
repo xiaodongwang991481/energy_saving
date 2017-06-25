@@ -12,8 +12,10 @@ sys.path.append(current_dir)
 
 from flask_script import Manager
 
+from energy_saving.api import api
 
-app_manager = Manager(app, usage="Perform database operations")
+
+app_manager = Manager(api.app, usage="Perform database operations")
 
 
 @app_manager.command

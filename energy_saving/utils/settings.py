@@ -26,17 +26,17 @@ DATABASE_URI = lazypy.delay(
     )
 )
 
-SQLALCHEMY_DATABASE_POOL_TYPE = 'instant'
-SQLALCHEMY_DEFAULT_ORDER_BY = 'created_at,desc'
+DATABASE_POOL_TYPE = 'instant'
 
 DEFAULT_LOGLEVEL = 'debug'
-DEFAULT_LOGDIR = '/var/log/orca'
+DEFAULT_LOGDIR = '/var/log/energy_saving'
 DEFAULT_LOGINTERVAL = 6
 DEFAULT_LOGINTERVAL_UNIT = 'h'
 DEFAULT_LOGFORMAT = (
     '%(asctime)s - %(filename)s - %(lineno)d - %(levelname)s - %(message)s')
 DEFAULT_LOGBACKUPCOUNT = 5
 WEB_LOGFILE = 'web.log'
+DB_MANAGE_LOGFILE = 'db_manage.log'
 CELERY_LOGFILE = 'celery.log'
 CELERYCONFIG_DIR = lazypy.delay(lambda: '%s' % CONFIG_DIR)
 CELERYCONFIG_FILE = 'celeryconfig'

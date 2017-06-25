@@ -7,7 +7,6 @@ import logging.handlers
 import os
 import os.path
 from oslo_config import cfg
-from oslo_config.types import Integer
 import sys
 
 from energy_saving.utils import settings
@@ -21,7 +20,6 @@ opts = [
                help='logging directory',
                default=settings.DEFAULT_LOGDIR),
     cfg.IntOpt('log_interval',
-               type=Integer,
                help='log interval',
                default=settings.DEFAULT_LOGINTERVAL),
     cfg.StrOpt('log_interval_unit',
@@ -30,7 +28,7 @@ opts = [
     cfg.StrOpt('log_format',
                help='log format',
                default=settings.DEFAULT_LOGFORMAT),
-    cfg.IntOpt('log_backup_count', type=Integer,
+    cfg.IntOpt('log_backup_count',
                help='log backup count',
                default=settings.DEFAULT_LOGBACKUPCOUNT)
 ]

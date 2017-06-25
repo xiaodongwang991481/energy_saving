@@ -1,15 +1,7 @@
 """Define all the RestfulAPI entry points."""
-import datetime
-import functools
 import logging
-import os
-import os.path
 import re
-import requests
 import simplejson as json
-import six
-import threading
-import time
 
 from oslo_config import cfg
 
@@ -18,11 +10,9 @@ from flask import request
 from energy_saving.api import app
 from energy_saving.api import exception_handler
 from energy_saving.api import utils
-from energy_saving.models import database
-from energy_saving.tasks import client as celery_client
+from energy_saving.db import database
 from energy_saving.utils import logsetting
 from energy_saving.utils import settings
-from energy_saving.utils import util
 
 
 opts = [

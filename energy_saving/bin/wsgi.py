@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 #
-"""orca wsgi module."""
-import lazypy
+"""energy saving wsgi module."""
 import os
 import sys
 

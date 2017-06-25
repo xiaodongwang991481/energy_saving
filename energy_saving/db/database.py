@@ -16,11 +16,10 @@ from sqlalchemy_utils import create_database
 from sqlalchemy_utils import database_exists
 from threading import local
 
-from energy_saving.models import exception
-from energy_saving.models import models
+from energy_saving.db import exception
+from energy_saving.db import models
 from energy_saving.utils import logsetting
 from energy_saving.utils import settings
-from energy_saving.utils import util
 
 
 opts = [
@@ -69,7 +68,7 @@ def init(database_url=None):
         logging.getLogger('sqlalchemy.pool').setLevel(logging.INFO)
         logging.getLogger('sqlalchemy.orm').setLevel(logging.INFO)
     poolclass = POOL_MAPPING[
-        setting.SQLALCHEMY_DATABASE_POOL_TYPE
+        settings.DATABASE_POOL_TYPE
     ]
     ENGINE = create_engine(
         database_url, convert_unicode=True,
