@@ -17,6 +17,9 @@
 DEBIAN=/etc/debian_version
 SUSE=/etc/SuSE-release
 CELERY=`which celery`
+CONFIG=energy_saving.utils.celeryconfig
+PIDFILE=/var/run/celery-worker.pid
+LOGFILE=/tmp/celery-worker.log
 
 if [ -f $DEBIAN ]; then
     . /lib/lsb/init-functions
@@ -29,23 +32,14 @@ fi
 RETVAL=0
 start() {
     echo -n "Starting energy saving Celeryd: "
-    if [ -f $SUSE ]; then
-        startproc -f -p /var/run/celery-worker.pid -l /tmp/celery-worker.log "C_FORCE_ROOT=1 CELERY_CONFIG_MODULE=energy_saving.utils.celeryconfig $CELERY worker"
-        rc_status -v
-        RETVAL=$?
-    elif [ -f $DEBIAN ]; then
-        start_daemon -p /var/run/celery-worker.pid "C_FORCE_ROOT=1 CELERY_CONFIG_MODULE=energy_saving.utils.celeryconfig $CELERY worker &>/tmp/celery-worker.log & echo \$!> /var/run/celery-worker.pid"
-        RETVAL=$?
-    else
-        daemon --pidfile /var/run/celery-worker.pid "C_FORCE_ROOT=1 CELERY_CONFIG_MODULE=energy_saving.utils.celeryconfig $CELERY worker &>/tmp/celery-worker.log & echo \$! > /var/run/celery-worker.pid"
-        RETVAL=$?
-    fi
+    C_FORCE_ROOT=1 $CELERY worker --quiet --detach --purge --autoscale=10,3 --config $CONFIG --pidfile $PIDFILE --logfile $LOGFILE
+    RETVAL=$?
     echo
     retries=0
     max_retries=10
     output=''
     while [ $retries -lt $max_retries ]; do
-      output=$(C_FORCE_ROOT=1 CELERY_CONFIG_MODULE=energy_saving.utils.celeryconfig $CELERY status 2&>1)
+      output=$($CELERY status --config $CONFIG)
       RETVAL=$?
       if [ "$RETVAL" == "0" ]; then
           break
@@ -63,14 +57,14 @@ start() {
 stop() {
     echo -n "Stopping energy saving Celeryd: "
     if [ -f $SUSE ]; then
-        killproc -t 10 -p /var/run/celery-worker.pid $CELERY
+        killproc -t 10 -p $PIDFILE $CELERY
         rc_status -v
         RETVAL=$?
     elif [ -f $DEBIAN ]; then
-        killproc -p /var/run/celery-worker.pid $CELERY -TERM
+        killproc -p $PIDFILE $CELERY -TERM
         RETVAL=$?
     else
-        killproc -p /var/run/celery-worker.pid -d 30 $CELERY
+        killproc -p $PIDFILE -d 30 $CELERY
         RETVAL=$?
     fi
     echo
@@ -88,18 +82,18 @@ case "$1" in
     status)
         echo -n "Checking energy saving celeryd: "
         if [ -f $SUSE ]; then
-            checkproc -v -p /var/run/celery-worker.pid $CELERY
+            checkproc -v -p $PIDFILE $CELERY
             rc_status -v
             RETVAL=$?
         elif [ -f $DEBIAN ]; then
-            status_of_proc -p /var/run/celery-worker.pid $CELERY
+            status_of_proc -p $PIDFILE $CELERY
             RETVAL=$?
         else
-            status -p /var/run/celery-worker.pid $CELERY
+            status -p $PIDFILE $CELERY
             RETVAL=$?
         fi
         if [ "$RETVAL" == "0" ]; then
-            C_FORCE_ROOT=1 CELERY_CONFIG_MODULE=energy_saving.utils.celeryconfig $CELERY status
+            $CELERY status
             RETVAL=$?
         fi
         ;;
