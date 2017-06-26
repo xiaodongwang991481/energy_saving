@@ -5,7 +5,6 @@
 import logging
 import os.path
 
-from enrgy_saving.utils import logsetting
 from energy_saving.utils import settings
 
 
@@ -29,13 +28,13 @@ CELERY_IMPORTS = ('energy_saving.tasks.tasks',)
 
 CELERY_ACCEPT_CONTENT = ['pickle', 'json', 'msgpack', 'yaml']
 CELERY_CREATE_MISSING_QUEUES = True
-CELERY_DEFAULT_QUEUE = 'deploy'
-CELERY_DEFAULT_EXCHANGE = 'deploy'
-CELERY_DEFAULT_ROUTING_KEY = 'deploy'
+CELERY_DEFAULT_QUEUE = 'energy_saving'
+CELERY_DEFAULT_EXCHANGE = 'energy_saving'
+CELERY_DEFAULT_ROUTING_KEY = 'energy_saving'
 C_FORCE_ROOT = 1
-celeryconfig_file = util.parse(setting.CELERYCONFIG_FILE)
+celeryconfig_file = settings.CELERYCONFIG_FILE
 if celeryconfig_file:
-    celeryconfig_dir = util.parse(setting.CELERYCONFIG_DIR)
+    celeryconfig_dir = settings.CELERYCONFIG_DIR
     CELERY_CONFIG = os.path.join(
         celeryconfig_dir,
         celeryconfig_file
@@ -51,7 +50,3 @@ if celeryconfig_file:
         logging.error(
             'ignore unexisting celery config file %s', CELERY_CONFIG
         )
-
-BROKER_PASSWORD = util.parse(BROKER_PASSWORD)
-BROKER_ADDR = util.parse(BROKER_ADDR)
-BROKER_URL = util.parse(BROKER_URL)

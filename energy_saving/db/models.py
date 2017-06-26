@@ -10,7 +10,6 @@ from sqlalchemy import Float
 from sqlalchemy import ForeignKey
 from sqlalchemy import JSON
 from sqlalchemy import String
-from sqlalchemy import text
 
 
 BASE = declarative_base()

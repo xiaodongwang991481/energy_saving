@@ -10,7 +10,7 @@ from celery.signals import setup_logging
 from oslo_config import cfg
 
 from energy_saving.db import database
-from enrgy_saving.tasks.client import celery
+from energy_saving.tasks.client import celery
 from energy_saving.utils import logsetting
 from energy_saving.utils import settings
 
