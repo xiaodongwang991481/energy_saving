@@ -7,6 +7,7 @@ from oslo_config import cfg
 
 from flask import request
 
+from energy_saving.api import admin_api
 from energy_saving.api import app
 from energy_saving.api import exception_handler
 from energy_saving.api import utils
@@ -259,6 +260,7 @@ def _parse_content_range(content_range, received_ranges=[], size=None):
 def init():
     logsetting.init(CONF.logfile)
     database.init()
+    admin_api.init()
 
 
 if __name__ == '__main__':

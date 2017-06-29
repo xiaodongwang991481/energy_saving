@@ -81,6 +81,7 @@ case "$1" in
         ;;
     status)
         echo -n "Checking energy saving celeryd: "
+        $CELERY status --config $CONFIG
         if [ -f $SUSE ]; then
             checkproc -v -p $PIDFILE $CELERY
             rc_status -v
