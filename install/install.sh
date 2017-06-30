@@ -10,10 +10,15 @@ echo "start installing....."
 DIR=$(cd $(dirname "${BASH_SOURCE[0]}") && pwd)
 source $DIR/install.conf
 
+sudo curl -sL https://repos.influxdata.com/influxdb.key | sudo apt-key add -
+source /etc/lsb-release
+echo "deb https://repos.influxdata.com/${DISTRIB_ID,,} ${DISTRIB_CODENAME} stable" | sudo tee /etc/apt/sources.list.d/influxdb.list
+
 sudo apt-get update -y || exit 1
 sudo apt-get install -y libmysqlclient-dev mysql-client mysql-server ntp ntpdate graphviz || exit 1
 sudo apt-get install -y git python-pip python-setuptools python-tox python-dev gcc rabbitmq-server celeryd librabbitmq-dev openssl || exit 1
 sudo apt-get install -y apache2 libapache2-mod-wsgi || exit 1
+sudo apt-get install -y influxdb || exit 1
 
 cd ${ENERGY_SAVING_DIR}
 
@@ -121,6 +126,16 @@ if [[ "$?" != "0" ]]; then
     exit 1
 else
     echo "apache2 is restarted"
+fi
+
+sudo systemcl enable influxdb.service
+sudo systemctl restart influxdb.service
+sudo systemctl status influxdb.service
+if [[ "$?" != "0" ]]; then
+    echo "failed to restart influxdb"
+    exit 1
+else
+    echo "influxdb is restarted"
 fi
 
 sudo systemctl enable energy-saving-celereyd.service
