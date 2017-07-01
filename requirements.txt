@@ -11,6 +11,7 @@ Flask-MySQLdb
 Flask-SQLAlchemy
 Flask-WTF
 importlib
+influxdb
 MySQL-python
 SQLAlchemy
 sqlalchemy_schemadisplay
