@@ -1,14 +1,17 @@
+alembic
 amqplib
 celery
 lazypy
 Markdown
 Flask
+Flask-Admin
 Flask-RESTful
 Flask-Script
 Flask-MySQLdb
 Flask-SQLAlchemy
 Flask-WTF
 importlib
+influxdb
 MySQL-python
 SQLAlchemy
 sqlalchemy_schemadisplay

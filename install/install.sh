@@ -52,7 +52,6 @@ if [-f /etc/energy_saving/settings]; then
     sudo sed -i "s/DATABASE_NAME\\s*=.*/DATABASE_NAME = '$MYSQL_NAME'/g" /etc/energy_saving/settings
 fi
 
-sudo sed -i "s/bind-address\\s*=.*/bind-address = $MYSQL_SERVER_IP/g" /etc/mysql/my.cnf || exit 1
 sudo systemctl restart mysql.service
 sudo systemctl status mysql.service
 if [[ "$?" != "0" ]]; then
@@ -103,6 +102,13 @@ if [[ "$?" != "0" ]]; then
 else
     echo "mysql database is set"
 fi
+sudo mkdir -p /var/log/energy_saving
+sudo chmod 777 /var/log/energy_saving
+sudo mkdir -p /var/www/energy_saving_web
+sudo chmod 777 /var/www/energy_saving_web
+sudo a2ensite energy-saving.conf
+
+sudo energy-saving-db-manage revision -m"init" --autogenerate
 sudo energy-saving-db-manage upgrade heads
 if [[ "$?" != "0" ]]; then
     echo "failed to create db schema"
@@ -116,10 +122,10 @@ sudo systemctl enable apache2.service
 sudo systemctl restart apache2.service
 sudo systemctl status apache2.service
 if [[ "$?" != "0" ]]; then
-    echo "failed to restart httpd"
+    echo "failed to restart apache2"
     exit 1
 else
-    echo "httpd is restarted"
+    echo "apache2 is restarted"
 fi
 
 sudo systemcl enable influxdb.service
@@ -131,15 +137,17 @@ if [[ "$?" != "0" ]]; then
 else
     echo "influxdb is restarted"
 fi
+sudo influx -e "CREATE DATABASE energy_saving"
+sudo influx -e "CREATE RETENTION POLICY forever ON energy_saving DURATION INF REPLICATION 1"
 
 sudo systemctl enable energy-saving-celereyd.service
 sudo systemctl restart energy-saving-celeryd.service
 sudo systemctl status energy-saving-celeryd.service
 if [[ "$?" != "0" ]]; then
-    echo "failed to restart orca-celeryd"
+    echo "failed to restart energy-saving-celeryd"
     exit 1
 else
-    echo "orca-celeryd is restarted"
+    echo "energy-saving-celeryd is restarted"
 fi
 
 echo "install is done"
