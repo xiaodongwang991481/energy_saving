@@ -42,6 +42,26 @@ CELERYCONFIG_DIR = lazypy.delay(lambda: '%s' % CONFIG_DIR)
 CELERYCONFIG_FILE = 'celeryconfig'
 
 WEB_DIR = '/var/www/energy_saving_web'
+DATA_DIR = '/opt/energy_saving'
+
+INFLUX_IP = '127.0.0.1'
+INFLUX_PORT = 8086
+INFLUX_DATABASE = 'energy_saving'
+INFLUX_USER = 'root'
+INFLUX_PASSWORD = 'root'
+INFLUX_SERVER = lazypy.delay(
+    lambda: '%s:%s' % (INFLUX_IP, INFLUX_PORT)
+)
+INFLUX_URI = lazypy.delay(
+    lambda: '%s://%s:%s@%s/%s' % (
+        'influxdb',
+        lazypy.force(INFLUX_USER),
+        lazypy.force(INFLUX_PASSWORD),
+        lazypy.force(INFLUX_SERVER),
+        lazypy.force(INFLUX_DATABASE)
+    )
+)
+INFLUX_TIMEOUT = 5
 
 if (
     'ENERGY_SAVING_SETTINGS' in os.environ and

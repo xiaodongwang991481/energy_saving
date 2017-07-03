@@ -1,13 +1,17 @@
 import logging
 
+from flask_admin.contrib.fileadmin import FileAdmin
 from flask_admin.contrib.sqla.fields import QuerySelectField
 from flask_admin.contrib.sqla.form import AdminModelConverter
 from flask_admin.contrib.sqla import ModelView
+from flask_admin.form import SecureForm
 from flask_admin.model.fields import AjaxSelectField
 
 from energy_saving.api import admin
 from energy_saving.db import database
 from energy_saving.db import models
+from energy_saving.utils import settings
+
 
 logger = logging.getLogger(__name__)
 MODELS = {
@@ -45,6 +49,7 @@ class ForeignKeyModelConverter(AdminModelConverter):
 
 
 class BaseModelView(ModelView):
+    form_base_class = SecureForm
     column_display_pk = True
     can_export = True
     model_form_converter = ForeignKeyModelConverter
@@ -89,4 +94,7 @@ def init():
     )
     admin.add_view(
         BaseModelView(models.EnvironmentSensorAttr, database.SCOPED_SESSION())
+    )
+    admin.add_view(
+        FileAdmin(settings.DATA_DIR, '/static/', name='Static Files')
     )

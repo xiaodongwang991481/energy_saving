@@ -3,6 +3,7 @@ import logging
 from oslo_config import cfg
 
 from contextlib import contextmanager
+from influxdb import InfluxDBClient
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import OperationalError
@@ -23,9 +24,21 @@ from energy_saving.utils import settings
 
 
 opts = [
-    cfg.StrOpt('database_uri',
-               help='database uri',
-               default=settings.DATABASE_URI)
+    cfg.StrOpt(
+        'database_uri',
+        help='database uri',
+        default=settings.DATABASE_URI
+    ),
+    cfg.StrOpt(
+        'influx_uri',
+        help='influx uri',
+        default=settings.INFLUX_URI
+    ),
+    cfg.IntOpt(
+        'influx_timeout',
+        help='influx timeout',
+        default=settings.INFLUX_TIMEOUT
+    )
 ]
 CONF = cfg.CONF
 CONF.register_opts(opts)
@@ -40,10 +53,22 @@ POOL_MAPPING = {
     'queued': QueuePool,
     'thread_single': SingletonThreadPool
 }
+INFLUX_SESSION = None
 logger = logging.getLogger(__name__)
 
 
-def init(database_url=None):
+class InfluxSession(object):
+    def __init__(self, influx_url, timeout=None):
+        self.influx_url = influx_url
+        self.timeout = timeout
+
+    def get_client(self):
+        return InfluxDBClient.from_DSN(
+            self.influx_url, timeout=self.timeout
+        )
+
+
+def init(database_url=None, influx_url=None):
     """Initialize database.
 
     Adjust sqlalchemy logging if necessary.
@@ -52,9 +77,14 @@ def init(database_url=None):
     """
     global ENGINE
     global SCOPED_SESSION
+    global INFLUX_SESSION
     if not database_url:
         database_url = CONF.database_uri
+    if not influx_url:
+        influx_url = CONF.influx_uri
+    influx_timeout = CONF.influx_timeout
     logger.info('init database %s', database_url)
+    logger.info('init influx %s', influx_url)
     root_logger = logging.getLogger()
     loglevel_mapping = logsetting.LOGLEVEL_MAPPING
     fine_debug = root_logger.isEnabledFor(loglevel_mapping['fine'])
@@ -76,11 +106,26 @@ def init(database_url=None):
     )
     SESSION.configure(bind=ENGINE)
     SCOPED_SESSION = scoped_session(SESSION)
+    INFLUX_SESSION = InfluxSession(influx_url, influx_timeout)
 
 
 def in_session():
     """check if in database session scope."""
     bool(hasattr(SESSION_HOLDER, 'session'))
+
+
+@contextmanager
+def influx_session():
+    if not INFLUX_SESSION:
+        init()
+    client = INFLUX_SESSION.get_client()
+    logger.debug('influx session %s enter', client)
+    try:
+        yield client
+    except Exception as error:
+        logger.exception(error)
+    finally:
+        logger.debug('influx session %s exit', client)
 
 
 @contextmanager

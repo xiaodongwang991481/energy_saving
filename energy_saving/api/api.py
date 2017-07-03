@@ -1,7 +1,7 @@
 """Define all the RestfulAPI entry points."""
 import logging
-import re
 import simplejson as json
+import six
 
 from oslo_config import cfg
 
@@ -175,16 +175,6 @@ def _get_request_args(**kwargs):
     return args
 
 
-def _wrap_response(func, response_code):
-    """wrap function response to json formatted http response."""
-    def wrapped_func(*args, **kwargs):
-        return utils.make_json_response(
-            response_code,
-            func(*args, **kwargs)
-        )
-    return wrapped_func
-
-
 @app.route("/info", methods=['GET'])
 def status():
     return utils.make_json_response(
@@ -199,62 +189,41 @@ def health():
     )
 
 
-def _parse_content_range(content_range, received_ranges=[], size=None):
-    pat = re.compile(r'^(?:bytes\s+)?([0-9]+)-([0-9]+)/([0-9]+)$')
-    mat = pat.match(content_range)
-    if not mat:
-        raise exception_handler.BadRequest(
-            'invalid content-range header %s' % content_range
-        )
-    start = int(mat.group(1))
-    end = int(mat.group(2))
-    total = int(mat.group(3))
-    if total == 0:
-        raise exception_handler.BadRequest(
-            'invalid content-range header %s, total is %s' % (
-                content_range, total
+@app.route("/timeseries", methods=['GET'])
+def list_timeseries():
+    data = _get_request_args()
+    logger.debug('timeseries data: %s', data)
+    response = {}
+    with database.influx_session() as session:
+        if data:
+            wheres = []
+            for key, value in six.iteritems(data):
+                wheres.append("%s='%s'" % (key, value))
+            result = session.query(
+                'select * from /.*/ where %s' % ' and '.join(wheres)
             )
-        )
-    if start > end:
-        raise exception_handler.BadRequest(
-            'invalid content-range header %s: '
-            'start %s is greater than end %s' % (
-                content_range, start, end
-            )
-        )
-    if end >= total:
-        raise exception_handler.BadRequest(
-            'invalid content-range header %s: '
-            'end %s is not less than total %s' % (
-                content_range, end, total
-            )
-        )
-    if received_ranges:
-        assert(size is not None)
-        if size != total:
-            raise exception_handler.BadRequest(
-                'invalid content-range header %s: '
-                'total is not equal to the expected size %s' % (
-                    content_range, total, size
-                )
-            )
-        last_end = received_ranges[-1][1]
-        if last_end + 1 != start:
-            raise exception_handler.BadRequest(
-                'invalid content-range header %s: '
-                'start %s is not continuous to previous end %s' % (
-                    content_range, start, last_end
-                )
-            )
-    else:
-        if start != 0:
-            raise exception_handler.BadRequest(
-                'invalid content-range header %s: '
-                'invalid start %s for the first package' % (
-                    content_range, start
-                )
-            )
-    return start, end, total
+        else:
+            result = session.query('select * from /.*/')
+        response = result.raw
+    logger.debug('timeseries %s', response)
+    return utils.make_json_response(
+        200, response
+    )
+
+
+@app.route("/timeseries", methods=['POST'])
+def create_timeseries():
+    data = _get_request_data()
+    logger.debug('timeseries data: %s', data)
+    status = False
+    with database.influx_session() as session:
+        if isinstance(data, dict):
+            status = session.write(data)
+        elif isinstance(data, list):
+            status = session.write_points(data)
+    return utils.make_json_response(
+        200, {'status': status}
+    )
 
 
 def init():
