@@ -189,40 +189,116 @@ def health():
     )
 
 
-@app.route("/timeseries", methods=['GET'])
-def list_timeseries():
+def _get_where(data):
+    wheres = []
+    starttime = data.pop('starttime', None)
+    if starttime and starttime[0] in ['-', '+']:
+        starttime = 'now() %s %s' % (
+            starttime[0], starttime[1:]
+        )
+    endtime = data.pop('endtime', None)
+    if endtime and endtime[0] in ['-', '+']:
+        endtime = 'now() %s %s' % (
+            endtime[0], endtime[1:]
+        )
+    for key, value in six.iteritems(data):
+        if isinstance(value, list):
+            if not value:
+                continue
+            sub_wheres = []
+            for item in value:
+                sub_wheres.append("%s = '%s'" % (key, item))
+            wheres.append(' or '.join(sub_wheres))
+        else:
+            wheres.append("%s = '%s'" % (key, value))
+    if starttime:
+        wheres.append('time > %s' % starttime)
+    if endtime:
+        wheres.append('time < %s' % endtime)
+    if wheres:
+        return ' and '.join(wheres)
+    else:
+        return ''
+
+
+@app.route("/timeseries/<measurement>", methods=['GET'])
+def list_timeseries(measurement):
     data = _get_request_args()
     logger.debug('timeseries data: %s', data)
     response = {}
-    with database.influx_session() as session:
-        if data:
-            wheres = []
-            for key, value in six.iteritems(data):
-                wheres.append("%s='%s'" % (key, value))
-            result = session.query(
-                'select * from /.*/ where %s' % ' and '.join(wheres)
-            )
+    query = data.pop('query', None)
+    where = data.pop('where', None)
+    group_by = data.pop('group_by', None)
+    time_precision = data.pop('time_precision', None)
+    if not query:
+        if not where:
+            where = _get_where(data)
+        if where:
+            where_clause = ' where %s' % where
         else:
-            result = session.query('select * from /.*/')
-        response = result.raw
-    logger.debug('timeseries %s', response)
+            where_clause = ''
+        if group_by:
+            group_by_clause = ' group by %s' % group_by
+        else:
+            group_by_clause = ''
+        query = 'select * from %s%s%s' % (
+            measurement, where_clause, group_by_clause
+        )
+    logger.debug('timeseries %s query: %s', measurement, query)
+    with database.influx_session() as session:
+        result = session.query(query, epoch=time_precision)
+        response = list(result.get_points())
+    logger.debug('timeseries %s response: %s', measurement, response)
     return utils.make_json_response(
         200, response
     )
 
 
-@app.route("/timeseries", methods=['POST'])
-def create_timeseries():
+@app.route("/timeseries/<measurement>", methods=['POST'])
+def create_timeseries(measurement):
     data = _get_request_data()
-    logger.debug('timeseries data: %s', data)
+    logger.debug('timeseries data for %s: %s', measurement, data)
+    points = []
+    tags = data.pop('tags', {})
+    time_precision = data.pop('time_precision', None)
+    timeseries = {}
+    for key, value in six.iteritems(data):
+        for timestamp, item in six.iteritems(value):
+            timeseries.setdefault(timestamp, {})[key] = item
+    for timestamp, items in six.iteritems(timeseries):
+        if time_precision:
+            timestamp = long(timestamp)
+        points.append({
+            'measurement': measurement,
+            'time': timestamp,
+            'fields': items
+        })
+    logger.debug('timeseries %s points: %s', measurement, points)
+    logger.debug('timeseries %s tags: %s', measurement, tags)
     status = False
     with database.influx_session() as session:
-        if isinstance(data, dict):
-            status = session.write(data)
-        elif isinstance(data, list):
-            status = session.write_points(data)
+        status = session.write_points(
+            points, time_precision=time_precision, tags=tags
+        )
+    logger.debug('timeseries %s status: %s', measurement, status)
+    if status:
+        return utils.make_json_response(
+            200, {'status': status}
+        )
+    else:
+        raise exception_handler.NotAcceptable(
+            'timeseries %s data not acceptable' % measurement
+        )
+
+
+@app.route("/timeseries/<measurement>", methods=['DELETE'])
+def delete_timeseries(measurement):
+    data = _get_request_data()
+    logger.debug('timeseries data for %s: %s', measurement, data)
+    with database.influx_session() as session:
+        session.delete_series(measurement=measurement, tags=data)
     return utils.make_json_response(
-        200, {'status': status}
+        200, {'status': True}
     )
 
 
