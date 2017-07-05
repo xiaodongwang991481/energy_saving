@@ -19,6 +19,8 @@ sudo apt-get install -y libmysqlclient-dev mysql-client mysql-server ntp ntpdate
 sudo apt-get install -y git python-pip python-setuptools python-tox python-dev gcc rabbitmq-server celeryd librabbitmq-dev openssl || exit 1
 sudo apt-get install -y apache2 libapache2-mod-wsgi || exit 1
 sudo apt-get install -y influxdb || exit 1
+sudo a2enmod proxy
+sudo a2enmod proxy-http
 
 cd ${ENERGY_SAVING_DIR}
 
