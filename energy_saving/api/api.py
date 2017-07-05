@@ -17,9 +17,16 @@ from energy_saving.utils import settings
 
 
 opts = [
-    cfg.StrOpt('logfile',
-               help='log file name',
-               default=settings.WEB_LOGFILE)
+    cfg.StrOpt(
+        'logfile',
+        help='log file name',
+        default=settings.WEB_LOGFILE
+    ),
+    cfg.IntOpt(
+        'server_port',
+        help='flask server port',
+        default=settings.SERVER_PORT
+    )
 ]
 CONF = cfg.CONF
 CONF.register_opts(opts)
@@ -310,4 +317,7 @@ def init():
 
 if __name__ == '__main__':
     init()
-    app.run(host='0.0.0.0')
+    app.run(
+        host='0.0.0.0', port=CONF.server_port,
+        debug=settings.DEBUG
+    )

@@ -28,6 +28,8 @@ DATABASE_URI = lazypy.delay(
 
 DATABASE_POOL_TYPE = 'instant'
 
+DEBUG = True
+SERVER_PORT = 80
 DEFAULT_LOGLEVEL = 'debug'
 DEFAULT_LOGDIR = '/var/log/energy_saving'
 DEFAULT_LOGINTERVAL = 6

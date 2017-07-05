@@ -1,8 +1,10 @@
 from flask import Flask
 from flask_admin import Admin
 
+from energy_saving.utils import settings
+
 
 app = Flask(__name__)
 admin = Admin(app, name='energy_saving', template_mode='bootstrap3')
-app.debug = True
+app.debug = settings.DEBUG
 app.secret_key = 'A0Zr98j/3yX R~XHH!jmN]LWX/,?RT'
