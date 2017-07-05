@@ -1,4 +1,5 @@
 """Define all the RestfulAPI entry points."""
+import csv
 import logging
 import simplejson as json
 import six
@@ -196,6 +197,37 @@ def health():
     )
 
 
+@app.route("/import/<model_name>", methods=['POST'])
+def upload_model(model_name):
+    logger.debug('upload model %s', model_name)
+    if model_name not in admin_api.MODELS:
+        raise exception_handler.ItemNotFound(
+            'model %s is not found' % model_name
+        )
+    model = admin_api.MODELS[model_name]
+    data = []
+    request_files = request.files.items(multi=True)
+    if not request_files:
+            raise exception_handler.NotAcceptable(
+                'no csv file to upload'
+            )
+    for filename, upload in request_files:
+        fields = None
+        reader = csv.reader(upload)
+        logger.debug('upload csv file %s', reader.filename)
+        for row in reader.file:
+            logger.debug('read row %s', row)
+            if not fields:
+                fields = row
+            else:
+                data.append(dict(zip(fields, row)))
+    with database.session() as session:
+        session.bulk_insert_mappings(model, data, True)
+    return utils.make_json_response(
+        200, 'OK'
+    )
+
+
 def _get_where(data):
     wheres = []
     starttime = data.pop('starttime', None)
@@ -228,9 +260,7 @@ def _get_where(data):
         return ''
 
 
-@app.route("/timeseries/<measurement>", methods=['GET'])
-def list_timeseries(measurement):
-    data = _get_request_args()
+def _list_timeseries(measurement, data):
     logger.debug('timeseries data: %s', data)
     response = {}
     query = data.pop('query', None)
@@ -261,32 +291,103 @@ def list_timeseries(measurement):
     )
 
 
-@app.route("/timeseries/<measurement>", methods=['POST'])
-def create_timeseries(measurement):
-    data = _get_request_data()
-    logger.debug('timeseries data for %s: %s', measurement, data)
+@app.route("/timeseries", methods=['GET'])
+def list_all_timeseries():
+    data = _get_request_args()
+    return _list_timeseries('/.*/', data)
+
+
+@app.route("/timeseries/<measurement>", methods=['GET'])
+def list_timeseries(measurement):
+    data = _get_request_args()
+    return _list_timeseries(measurement, data)
+
+
+@app.route("/timeseries/<datacenter>/<measurement>", methods=['GET'])
+def list_datacenter_timeseries(datacenter, measurement):
+    data = _get_request_args()
+    data.update({
+        'datacenter': datacenter
+    })
+    return _list_timeseries(measurement, data)
+
+
+@app.route(
+    "/timeseries/<datacenter>/<device_type>/<device>/<measurement>",
+    methods=['GET']
+)
+def list_device_timeseries(datacenter, device_type, device, measurement):
+    data = _get_request_args()
+    data.update({
+        'datacenter': datacenter,
+        device_type: device
+    })
+    return _list_timeseries(measurement, data)
+
+
+def _write_points(session, measurement, device_data, tags, time_precision):
     points = []
-    tags = data.pop('tags', {})
-    time_precision = data.pop('time_precision', None)
-    timeseries = {}
-    for key, value in six.iteritems(data):
-        for timestamp, item in six.iteritems(value):
-            timeseries.setdefault(timestamp, {})[key] = item
-    for timestamp, items in six.iteritems(timeseries):
+    for timestamp, value in six.iteritems(device_data):
         if time_precision:
             timestamp = long(timestamp)
         points.append({
             'measurement': measurement,
             'time': timestamp,
-            'fields': items
+            'fields': {
+                'value': value
+            }
         })
     logger.debug('timeseries %s points: %s', measurement, points)
     logger.debug('timeseries %s tags: %s', measurement, tags)
-    status = False
+    return session.write_points(
+        points, time_precision=time_precision, tags=tags
+    )
+
+
+def generate_timeseries(data, tags):
+    generated_tags = dict(tags)
+    for datacenter, datacenter_data in six.iteritems(data):
+        for device_type, device_type_data in six.iteritems(datacenter_data):
+            for device, device_data in six.iteritems(device_type_data):
+                generated_tags.update({
+                    'datacenter': datacenter,
+                    device_type: device
+                })
+                yield device_data, generated_tags
+
+
+def generate_datacenter_timeseries(data, tags):
+    generated_tags = dict(tags)
+    for device_type, device_type_data in six.iteritems(data):
+        for device, device_data in six.iteritems(device_type_data):
+            generated_tags.update({
+                device_type: device
+            })
+            yield device_data, generated_tags
+
+
+def generate_device_timeseries(data, tags):
+    generated_tags = dict(tags)
+    yield data, generated_tags
+
+
+def _create_timeseries(measurement, timeseries_generator, tags):
+    data = _get_request_data()
+    logger.debug('timeseries data for %s: %s', measurement, data)
+    time_precision = data.pop('time_precision', None)
+    data_tags = data.pop('tags', {})
+    data_tags.update(tags)
+    tags = data_tags
+    status = True
     with database.influx_session() as session:
-        status = session.write_points(
-            points, time_precision=time_precision, tags=tags
-        )
+        for device_data, generated_tags in timeseries_generator(data, tags):
+            status = all(
+                status,
+                _write_points(
+                    session, measurement, device_data,
+                    generated_tags, time_precision
+                )
+            )
     logger.debug('timeseries %s status: %s', measurement, status)
     if status:
         return utils.make_json_response(
@@ -298,15 +399,66 @@ def create_timeseries(measurement):
         )
 
 
-@app.route("/timeseries/<measurement>", methods=['DELETE'])
-def delete_timeseries(measurement):
-    data = _get_request_data()
-    logger.debug('timeseries data for %s: %s', measurement, data)
+@app.route("/timeseries/<measurement>", methods=['POST'])
+def create_timeseries(measurement):
+    return _create_timeseries(measurement, generate_timeseries, {})
+
+
+@app.route("/timeseries/<datacenter>/<measurement>", methods=['POST'])
+def create_datacenter_timeseries(datacenter, measurement):
+    tags = {'datacenter': datacenter}
+    return _create_timeseries(
+        measurement, generate_datacenter_timeseries, tags
+    )
+
+
+@app.route(
+    "/timeseries/<datacenter>/<device_type>/<device>/<measurement>",
+    methods=['POST']
+)
+def create_device_timeseries(datacenter, device_type, device, measurement):
+    tags = {
+        'datacenter': datacenter,
+        device_type: device
+    }
+    return _create_timeseries(
+        measurement, generate_device_timeseries, tags
+    )
+
+
+def _delete_timeseries(measurement, tags):
+    logger.debug('timeseries data for %s: %s', measurement, tags)
     with database.influx_session() as session:
-        session.delete_series(measurement=measurement, tags=data)
+        session.delete_series(measurement=measurement, tags=tags)
     return utils.make_json_response(
         200, {'status': True}
     )
+
+
+@app.route("/timeseries/<measurement>", methods=['DELETE'])
+def delete_timeseries(measurement):
+    data = _get_request_data()
+    return _delete_timeseries(measurement, data)
+
+
+@app.route("/timeseries/<datacenter>/<measurement>", methods=['DELETE'])
+def delete_datacenter_timeseries(datacenter, measurement):
+    data = _get_request_data()
+    data.update({'datacenter': datacenter})
+    return _delete_timeseries(measurement, data)
+
+
+@app.route(
+    "/timeseries/<datacenter>/<device_type>/<device>/<measurement>",
+    methods=['DELETE']
+)
+def delete_device_timeseries(datacenter, device_type, device, measurement):
+    data = _get_request_data()
+    data.update({
+        'datacenter': datacenter,
+        device_type: device
+    })
+    return _delete_timeseries(measurement, data)
 
 
 def init():

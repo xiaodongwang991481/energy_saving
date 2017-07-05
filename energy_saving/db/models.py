@@ -21,7 +21,7 @@ class LocationMixin(object):
     location = Column(JSON)
 
 
-class SensorMixin(object):
+class AttrMixin(object):
     type = Column(
         Enum('binary', 'continuous', 'integer', 'discrete'),
         default='continuous', server_default='continuous'
@@ -75,6 +75,13 @@ class Datacenter(BASE, LocationMixin):
         cascade='all, delete-orphan',
         backref=backref('datacenter')
     )
+    sensor_attribute_data = relationship(
+        'SensorAttrData',
+        foreign_keys='[SensorAttrData.datacenter_name]',
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('datacenter')
+    )
     controllers = relationship(
         'Controller',
         foreign_keys='[Controller.datacenter_name]',
@@ -89,9 +96,23 @@ class Datacenter(BASE, LocationMixin):
         cascade='all, delete-orphan',
         backref=backref('datacenter')
     )
+    controller_attribute_data = relationship(
+        'ControllerAttrData',
+        foreign_keys='[ControllerAttrData.datacenter_name]',
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('datacenter')
+    )
     controller_parameters = relationship(
         'ControllerParam',
         foreign_keys='[ControllerParam.datacenter_name]',
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('datacenter')
+    )
+    controller_parameter_data = relationship(
+        'ControllerParamData',
+        foreign_keys='[ControllerParamData.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
         backref=backref('datacenter')
@@ -106,6 +127,13 @@ class Datacenter(BASE, LocationMixin):
     environment_sensor_attributes = relationship(
         'EnvironmentSensorAttr',
         foreign_keys='[EnvironmentSensorAttr.datacenter_name]',
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('datacenter')
+    )
+    environment_sensor_attribute_data = relationship(
+        'EnvironmentSensorAttrData',
+        foreign_keys='[EnvironmentSensorAttrData.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
         backref=backref('datacenter')
@@ -128,9 +156,12 @@ class Sensor(BASE, LocationMixin):
     )
     name = Column(String(36), primary_key=True)
     properties = Column(JSON)
-    attributes = relationship(
-        'SensorAttr',
-        foreign_keys='[SensorAttr.datacenter_name,SensorAttr.name]',
+    attribute_data = relationship(
+        'SensorAttrData',
+        foreign_keys=(
+            '[SensorAttrData.datacenter_name,'
+            'SensorAttrData.sensor_name]'
+        ),
         passive_deletes=True,
         cascade='all, delete-orphan',
         backref=backref('sensor')
@@ -142,14 +173,10 @@ class Sensor(BASE, LocationMixin):
         )
 
 
-class SensorAttr(BASE, SensorMixin):
+class SensorAttr(BASE, AttrMixin):
     """Sensor attribute table."""
     __tablename__ = 'sensor_attribute'
     datacenter_name = Column(
-        String(36),
-        primary_key=True
-    )
-    sensor_name = Column(
         String(36),
         primary_key=True
     )
@@ -161,6 +188,50 @@ class SensorAttr(BASE, SensorMixin):
             ['datacenter.name'],
             onupdate="CASCADE", ondelete="CASCADE"
         ),
+    )
+    attribute_data = relationship(
+        'SensorAttrData',
+        foreign_keys=(
+            '[SensorAttrData.datacenter_name,'
+            'SensorAttrData.name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('attribute')
+    )
+
+    def __str__(self):
+        return 'SensorAttr[datacenter_name=%s,name=%s]' % (
+            self.datacenter_name, self.name
+        )
+
+
+class SensorAttrData(BASE):
+    """Sensor attribute data table."""
+    __tablename__ = 'sensor_attribute_data'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    sensor_name = Column(
+        String(36),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'name'],
+            [
+                'sensor_attribute.datacenter_name',
+                'sensor_attribute.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
         ForeignKeyConstraint(
             ['datacenter_name', 'sensor_name'],
             ['sensor.datacenter_name', 'sensor.name'],
@@ -169,7 +240,10 @@ class SensorAttr(BASE, SensorMixin):
     )
 
     def __str__(self):
-        return 'SensorAttr[datacenter_name=%s,sensor_name=%s,name=%s]' % (
+        return (
+            'SensorAttrData[datacenter_name=%s,'
+            'sensor_name=%s,name=%s]'
+        ) % (
             self.datacenter_name, self.sensor_name, self.name
         )
 
@@ -184,21 +258,21 @@ class Controller(BASE, LocationMixin):
     )
     name = Column(String(36), primary_key=True)
     properties = Column(JSON)
-    attributes = relationship(
-        'ControllerAttr',
+    attribute_data = relationship(
+        'ControllerAttrData',
         foreign_keys=(
-            '[ControllerAttr.datacenter_name,'
-            'ControllerAttr.controller_name]'
+            '[ControllerAttrData.datacenter_name,'
+            'ControllerAttrData.controller_name]'
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
         backref=backref('controller')
     )
-    parameters = relationship(
-        'ControllerParam',
+    parameter_data = relationship(
+        'ControllerParamData',
         foreign_keys=(
-            '[ControllerParam.datacenter_name,'
-            'ControllerParam.controller_name]'
+            '[ControllerParamData.datacenter_name,'
+            'ControllerParamData.controller_name]'
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
@@ -211,14 +285,10 @@ class Controller(BASE, LocationMixin):
         )
 
 
-class ControllerAttr(BASE, SensorMixin):
+class ControllerAttr(BASE, AttrMixin):
     """controller attribute table."""
     __tablename__ = 'controller_attribute'
     datacenter_name = Column(
-        String(36),
-        primary_key=True
-    )
-    controller_name = Column(
         String(36),
         primary_key=True
     )
@@ -230,6 +300,52 @@ class ControllerAttr(BASE, SensorMixin):
             ['datacenter.name'],
             onupdate="CASCADE", ondelete="CASCADE"
         ),
+    )
+    attribute_data = relationship(
+        'ControllerAttrData',
+        foreign_keys=(
+            '[ControllerAttrData.datacenter_name,'
+            'ControllerAttrData.name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('attribute')
+    )
+
+    def __str__(self):
+        return (
+            'ControllerAttr[datacenter_name=%s,name=%s]'
+        ) % (
+            self.datacenter_name, self.name
+        )
+
+
+class ControllerAttrData(BASE):
+    """controller attribute data table."""
+    __tablename__ = 'controller_attribute_data'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    controller_name = Column(
+        String(36),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'name'],
+            [
+                'controller_attribute.datacenter_name',
+                'controller_attribute.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
         ForeignKeyConstraint(
             ['datacenter_name', 'controller_name'],
             ['controller.datacenter_name', 'controller.name'],
@@ -239,7 +355,7 @@ class ControllerAttr(BASE, SensorMixin):
 
     def __str__(self):
         return (
-            'ControllerAttr[datacenter_name=%s,'
+            'ControllerAttrData[datacenter_name=%s,'
             'controller_name=%s,name=%s]'
         ) % (
             self.datacenter_name, self.controller_name, self.name
@@ -253,16 +369,59 @@ class ControllerParam(BASE, ParamMixin):
         String(36),
         primary_key=True
     )
-    controller_name = Column(
-        String(36),
-        primary_key=True
-    )
     name = Column(String(36), primary_key=True)
     properties = Column(JSON)
     __table_args__ = (
         ForeignKeyConstraint(
             ['datacenter_name'],
             ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+    )
+    parameter_data = relationship(
+        'ControllerParamData',
+        foreign_keys=(
+            '[ControllerParamData.datacenter_name,'
+            'ControllerParamData.name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('parameter')
+    )
+
+    def __str__(self):
+        return (
+            'ControllerParam[datacenter_name=%s,'
+            'name=%s]'
+        ) % (
+            self.datacenter_name, self.name
+        )
+
+
+class ControllerParamData(BASE):
+    """controller param data table."""
+    __tablename__ = 'controller_parameter_data'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    controller_name = Column(
+        String(36),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'name'],
+            [
+                'controller_parameter.datacenter_name',
+                'controller_parameter.name'
+            ],
             onupdate="CASCADE", ondelete="CASCADE"
         ),
         ForeignKeyConstraint(
@@ -274,7 +433,7 @@ class ControllerParam(BASE, ParamMixin):
 
     def __str__(self):
         return (
-            'ControllerParam[datacenter_name=%s,'
+            'ControllerParamData[datacenter_name=%s,'
             'controller_name=%s,name=%s]'
         ) % (
             self.datacenter_name, self.controller_name, self.name
@@ -291,11 +450,11 @@ class EnvironmentSensor(BASE, LocationMixin):
     )
     name = Column(String(36), primary_key=True)
     properties = Column(JSON)
-    attributes = relationship(
-        'EnvironmentSensorAttr',
+    attribute_data = relationship(
+        'EnvironmentSensorAttrData',
         foreign_keys=(
-            '[EnvironmentSensorAttr.datacenter_name,'
-            'EnvironmentSensorAttr.environment_sensor_name]'
+            '[EnvironmentSensorAttrData.datacenter_name,'
+            'EnvironmentSensorAttrData.environment_sensor_name]'
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
@@ -308,14 +467,10 @@ class EnvironmentSensor(BASE, LocationMixin):
         )
 
 
-class EnvironmentSensorAttr(BASE, SensorMixin):
+class EnvironmentSensorAttr(BASE, AttrMixin):
     """Environment sensor attribute table."""
     __tablename__ = 'environment_sensor_attribute'
     datacenter_name = Column(
-        String(36),
-        primary_key=True
-    )
-    environment_sensor_name = Column(
         String(36),
         primary_key=True
     )
@@ -327,16 +482,66 @@ class EnvironmentSensorAttr(BASE, SensorMixin):
             ['datacenter.name'],
             onupdate="CASCADE", ondelete="CASCADE"
         ),
+    )
+    attribute_data = relationship(
+        'EnvironmentSensorAttrData',
+        foreign_keys=(
+            '[EnvironmentSensorAttrData.datacenter_name,'
+            'EnvironmentSensorAttrData.name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('environment_sensor_attribute')
+    )
+
+    def __str__(self):
+        return (
+            'EnvironmentSensorAttr[datacenter_name=%s,'
+            'name=%s]'
+        ) % (
+            self.datacenter_name, self.name
+        )
+
+
+class EnvironmentSensorAttrData(BASE, AttrMixin):
+    """Environment sensor attribute data table."""
+    __tablename__ = 'environment_sensor_attribute_data'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    environment_sensor_name = Column(
+        String(36),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'name'],
+            [
+                'environment_sensor_attribute.datacenter_name',
+                'environment_sensor_attribute.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
         ForeignKeyConstraint(
             ['datacenter_name', 'environment_sensor_name'],
-            ['environment_sensor.datacenter_name', 'environment_sensor.name'],
+            [
+                'environment_sensor.datacenter_name',
+                'environment_sensor.name'
+            ],
             onupdate="CASCADE", ondelete="CASCADE"
         )
     )
 
     def __str__(self):
         return (
-            'EnvironmentSensorAttr[datacenter_name=%s,'
+            'EnvironmentSensorAttrData[datacenter_name=%s,'
             'environment_sensor_name=%s,name=%s]'
         ) % (
             self.datacenter_name, self.environment_sensor_name, self.name
