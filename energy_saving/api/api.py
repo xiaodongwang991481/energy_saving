@@ -1,9 +1,9 @@
 """Define all the RestfulAPI entry points."""
 import csv
-import datetime
 import logging
 import simplejson as json
 import six
+import StringIO
 
 from oslo_config import cfg
 
@@ -270,7 +270,7 @@ def _list_timeseries(measurement, data):
     where = data.pop('where', None)
     group_by = data.pop('group_by', None)
     time_precision = data.pop(
-        'time_precision',settings.DEFAULT_TIME_PRECISION
+        'time_precision', settings.DEFAULT_TIME_PRECISION
     )
     if not query:
         if not where:
@@ -352,6 +352,7 @@ def export_timeseries(datacenter, device_type, measurement):
     with database.influx_session() as session:
         result = session.query(query, epoch=settings.DEFAULT_TIME_PRECISION)
         response = list(result.get_points())
+    logger.debug('influx query response: %s', response)
     data_by_device = {}
     devices = set()
     for item in response:
@@ -359,8 +360,10 @@ def export_timeseries(datacenter, device_type, measurement):
         timestamp = item['time']
         value = item['value']
         devices.add(device)
-        data_by_device.setdefault(timestamp)[device] = value
+        device_data = data_by_device.setdefault(timestamp, {})
+        device_data[device] = value
     devices = list(devices)
+    devices = sorted(devices)
     data_by_timestamp = {}
     for timestamp, device_data in six.iteritems(data_by_device):
         timestamp_data = []
@@ -373,8 +376,12 @@ def export_timeseries(datacenter, device_type, measurement):
     data.append(['time'] + devices)
     for timestamp in timestamps:
         data.append([timestamp] + data_by_timestamp[timestamp])
-    return utils.make_json_response(
-        200, data
+    string_buffer = StringIO.StringIO()
+    writer = csv.writer(string_buffer)
+    writer.writerows(data)
+    return utils.make_csv_response(
+        200, string_buffer.getvalue(),
+        '%s-%s-%s.csv' % (measurement, datacenter, device_type)
     )
 
 
@@ -434,13 +441,13 @@ def _create_timeseries(
     status = True
     with database.influx_session() as session:
         for device_data, generated_tags in timeseries_generator(data, tags):
-            status = all(
+            status = all([
                 status,
                 _write_points(
                     session, measurement, device_data,
                     generated_tags, time_precision
                 )
-            )
+            ])
     logger.debug('timeseries %s status: %s', measurement, status)
     if status:
         return utils.make_json_response(
@@ -494,9 +501,11 @@ def import_timeseries(datacenter, device_type, measurement):
                     data_by_device.setdefault(field, {})
             else:
                 timestamp = row[0]
+                row = row[1:]
                 data = dict(zip(fields, row))
                 for field, value in six.iteritems(data):
-                    data_by_device[field][timestamp] = value
+                    if value:
+                        data_by_device[field][timestamp] = float(value)
     status = True
     with database.influx_session() as session:
         for device, device_data in six.iteritems(data_by_device):
@@ -505,13 +514,13 @@ def import_timeseries(datacenter, device_type, measurement):
                 'device_type': device_type,
                 'device':  device
             }
-            status = all(
+            status = all([
                 status,
                 _write_points(
                     session, measurement, device_data, tags,
                     settings.DEFAULT_TIME_PRECISION
                 )
-            )
+            ])
     if status:
         return utils.make_json_response(
             200, {'status': status}

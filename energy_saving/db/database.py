@@ -124,6 +124,7 @@ def influx_session():
         yield client
     except Exception as error:
         logger.exception(error)
+        raise exception.DatabaseException(str(error))
     finally:
         logger.debug('influx session %s exit', client)
 
