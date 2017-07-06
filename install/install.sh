@@ -140,7 +140,7 @@ else
     echo "influxdb is restarted"
 fi
 sudo influx -execute "CREATE DATABASE energy_saving"
-sudo influx -execute "CREATE RETENTION POLICY forever ON energy_saving DURATION INF REPLICATION 1"
+sudo influx -execute "CREATE RETENTION POLICY forever ON energy_saving DURATION INF REPLICATION 1 DEFAULT"
 
 sudo systemctl enable energy-saving-celereyd.service
 sudo systemctl restart energy-saving-celeryd.service

@@ -1,5 +1,6 @@
 """Define all the RestfulAPI entry points."""
 import csv
+import datetime
 import logging
 import simplejson as json
 import six
@@ -197,7 +198,7 @@ def health():
     )
 
 
-@app.route("/import/<model_name>", methods=['POST'])
+@app.route("/import/database/<model_name>", methods=['POST'])
 def upload_model(model_name):
     logger.debug('upload model %s', model_name)
     if model_name not in admin_api.MODELS:
@@ -211,11 +212,13 @@ def upload_model(model_name):
             raise exception_handler.NotAcceptable(
                 'no csv file to upload'
             )
+    logger.debug('upload csv files: %s', request_files)
     for filename, upload in request_files:
         fields = None
         reader = csv.reader(upload)
-        logger.debug('upload csv file %s', reader.filename)
-        for row in reader.file:
+        for row in reader:
+            if not row:
+                continue
             logger.debug('read row %s', row)
             if not fields:
                 fields = row
@@ -266,7 +269,9 @@ def _list_timeseries(measurement, data):
     query = data.pop('query', None)
     where = data.pop('where', None)
     group_by = data.pop('group_by', None)
-    time_precision = data.pop('time_precision', None)
+    time_precision = data.pop(
+        'time_precision',settings.DEFAULT_TIME_PRECISION
+    )
     if not query:
         if not where:
             where = _get_where(data)
@@ -282,6 +287,7 @@ def _list_timeseries(measurement, data):
             measurement, where_clause, group_by_clause
         )
     logger.debug('timeseries %s query: %s', measurement, query)
+    response = []
     with database.influx_session() as session:
         result = session.query(query, epoch=time_precision)
         response = list(result.get_points())
@@ -320,12 +326,61 @@ def list_device_timeseries(datacenter, device_type, device, measurement):
     data = _get_request_args()
     data.update({
         'datacenter': datacenter,
-        device_type: device
+        'device_type': device_type,
+        'device': device
     })
     return _list_timeseries(measurement, data)
 
 
-def _write_points(session, measurement, device_data, tags, time_precision):
+@app.route(
+    "/export/timeseries/<datacenter>/<device_type>/<measurement>",
+    methods=['GET']
+)
+def export_timeseries(datacenter, device_type, measurement):
+    logger.debug(
+        'download timeseries datacenter=%s %s %s',
+        datacenter, device_type, measurement
+    )
+    query = (
+        "select value, device from %s where datacenter='%s' "
+        "and device_type='%s'"
+    ) % (
+        measurement, datacenter, device_type
+    )
+    logger.debug('timeseries %s query: %s', measurement, query)
+    response = []
+    with database.influx_session() as session:
+        result = session.query(query, epoch=settings.DEFAULT_TIME_PRECISION)
+        response = list(result.get_points())
+    data_by_device = {}
+    devices = set()
+    for item in response:
+        device = item['device']
+        timestamp = item['time']
+        value = item['value']
+        devices.add(device)
+        data_by_device.setdefault(timestamp)[device] = value
+    devices = list(devices)
+    data_by_timestamp = {}
+    for timestamp, device_data in six.iteritems(data_by_device):
+        timestamp_data = []
+        for device in devices:
+            timestamp_data.append(device_data.get(device, ''))
+        data_by_timestamp[timestamp] = timestamp_data
+    timestamps = data_by_device.keys()
+    timestamps = sorted(timestamps)
+    data = []
+    data.append(['time'] + devices)
+    for timestamp in timestamps:
+        data.append([timestamp] + data_by_timestamp[timestamp])
+    return utils.make_json_response(
+        200, data
+    )
+
+
+def _write_points(
+    session, measurement, device_data, tags={}, time_precision=None
+):
     points = []
     for timestamp, value in six.iteritems(device_data):
         if time_precision:
@@ -351,7 +406,8 @@ def generate_timeseries(data, tags):
             for device, device_data in six.iteritems(device_type_data):
                 generated_tags.update({
                     'datacenter': datacenter,
-                    device_type: device
+                    'device_type': device_type,
+                    'device': device
                 })
                 yield device_data, generated_tags
 
@@ -371,13 +427,10 @@ def generate_device_timeseries(data, tags):
     yield data, generated_tags
 
 
-def _create_timeseries(measurement, timeseries_generator, tags):
-    data = _get_request_data()
-    logger.debug('timeseries data for %s: %s', measurement, data)
-    time_precision = data.pop('time_precision', None)
-    data_tags = data.pop('tags', {})
-    data_tags.update(tags)
-    tags = data_tags
+def _create_timeseries(
+    measurement, data,
+    timeseries_generator, tags={}, time_precision=None
+):
     status = True
     with database.influx_session() as session:
         for device_data, generated_tags in timeseries_generator(data, tags):
@@ -401,14 +454,86 @@ def _create_timeseries(measurement, timeseries_generator, tags):
 
 @app.route("/timeseries/<measurement>", methods=['POST'])
 def create_timeseries(measurement):
-    return _create_timeseries(measurement, generate_timeseries, {})
+    data = _get_request_data()
+    logger.debug('timeseries data for %s: %s', measurement, data)
+    time_precision = data.pop(
+        'time_precision', settings.DEFAULT_TIME_PRECISION
+    )
+    tags = data.pop('tags', {})
+    return _create_timeseries(
+        measurement, data, generate_timeseries, tags, time_precision
+    )
+
+
+@app.route(
+    "/import/timeseries/<datacenter>/<device_type>/<measurement>",
+    methods=['POST']
+)
+def import_timeseries(datacenter, device_type, measurement):
+    logger.debug(
+        'upload timeseries datacenter=%s %s %s',
+        datacenter, device_type, measurement
+    )
+    data_by_device = {}
+    request_files = request.files.items(multi=True)
+    if not request_files:
+            raise exception_handler.NotAcceptable(
+                'no csv file to upload'
+            )
+    logger.debug('upload csv files: %s', request_files)
+    for filename, upload in request_files:
+        fields = None
+        reader = csv.reader(upload)
+        for row in reader:
+            if not row:
+                continue
+            logger.debug('read row %s', row)
+            if not fields:
+                fields = row[1:]
+                for field in fields:
+                    data_by_device.setdefault(field, {})
+            else:
+                timestamp = row[0]
+                data = dict(zip(fields, row))
+                for field, value in six.iteritems(data):
+                    data_by_device[field][timestamp] = value
+    status = True
+    with database.influx_session() as session:
+        for device, device_data in six.iteritems(data_by_device):
+            tags = {
+                'datacenter': datacenter,
+                'device_type': device_type,
+                'device':  device
+            }
+            status = all(
+                status,
+                _write_points(
+                    session, measurement, device_data, tags,
+                    settings.DEFAULT_TIME_PRECISION
+                )
+            )
+    if status:
+        return utils.make_json_response(
+            200, {'status': status}
+        )
+    else:
+        raise exception_handler.NotAcceptable(
+            'timeseries %s csv file does not acceptable' % measurement
+        )
 
 
 @app.route("/timeseries/<datacenter>/<measurement>", methods=['POST'])
 def create_datacenter_timeseries(datacenter, measurement):
-    tags = {'datacenter': datacenter}
+    data = _get_request_data()
+    logger.debug('timeseries data for %s: %s', measurement, data)
+    time_precision = data.pop(
+        'time_precision', settings.DEFAULT_TIME_PRECISION
+    )
+    tags = data.pop('tags', {})
+    tags.update({'datacenter': datacenter})
     return _create_timeseries(
-        measurement, generate_datacenter_timeseries, tags
+        measurement, data, generate_datacenter_timeseries,
+        tags, time_precision
     )
 
 
@@ -417,12 +542,19 @@ def create_datacenter_timeseries(datacenter, measurement):
     methods=['POST']
 )
 def create_device_timeseries(datacenter, device_type, device, measurement):
-    tags = {
+    data = _get_request_data()
+    logger.debug('timeseries data for %s: %s', measurement, data)
+    time_precision = data.pop(
+        'time_precision', settings.DEFAULT_TIME_PRECISION
+    )
+    tags = data.pop('tags', {})
+    tags.update({
         'datacenter': datacenter,
-        device_type: device
-    }
+        'device_type': device_type,
+        'device': device
+    })
     return _create_timeseries(
-        measurement, generate_device_timeseries, tags
+        measurement, data, generate_device_timeseries, tags, time_precision
     )
 
 
@@ -456,7 +588,8 @@ def delete_device_timeseries(datacenter, device_type, device, measurement):
     data = _get_request_data()
     data.update({
         'datacenter': datacenter,
-        device_type: device
+        'device_type': device_type,
+        'device': device
     })
     return _delete_timeseries(measurement, data)
 

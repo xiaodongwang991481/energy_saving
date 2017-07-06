@@ -64,6 +64,8 @@ INFLUX_URI = lazypy.delay(
     )
 )
 INFLUX_TIMEOUT = 5
+DEFAULT_TIME_PRECISION = None
+
 
 if (
     'ENERGY_SAVING_SETTINGS' in os.environ and
