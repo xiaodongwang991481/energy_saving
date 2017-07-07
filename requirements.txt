@@ -10,6 +10,7 @@ Flask-Script
 Flask-MySQLdb
 Flask-SQLAlchemy
 Flask-WTF
+Flask-Bootstrap
 importlib
 influxdb
 MySQL-python

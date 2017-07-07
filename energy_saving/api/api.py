@@ -1,6 +1,8 @@
 """Define all the RestfulAPI entry points."""
 import csv
+from dateutil import parser
 import logging
+import re
 import simplejson as json
 import six
 import StringIO
@@ -269,6 +271,7 @@ def _list_timeseries(measurement, data):
     query = data.pop('query', None)
     where = data.pop('where', None)
     group_by = data.pop('group_by', None)
+    order_by = data.pop('order_by', None)
     time_precision = data.pop(
         'time_precision', settings.DEFAULT_TIME_PRECISION
     )
@@ -283,8 +286,12 @@ def _list_timeseries(measurement, data):
             group_by_clause = ' group by %s' % group_by
         else:
             group_by_clause = ''
-        query = 'select * from %s%s%s' % (
-            measurement, where_clause, group_by_clause
+        if order_by:
+            order_by_clause = 'order by %s' % order_by
+        else:
+            order_by_clause = ''
+        query = 'select * from %s%s%s%s' % (
+            measurement, where_clause, group_by_clause, order_by_clause
         )
     logger.debug('timeseries %s query: %s', measurement, query)
     response = []
@@ -343,7 +350,7 @@ def export_timeseries(datacenter, device_type, measurement):
     )
     query = (
         "select value, device from %s where datacenter='%s' "
-        "and device_type='%s'"
+        "and device_type='%s' order by time"
     ) % (
         measurement, datacenter, device_type
     )
@@ -371,7 +378,12 @@ def export_timeseries(datacenter, device_type, measurement):
             timestamp_data.append(device_data.get(device, ''))
         data_by_timestamp[timestamp] = timestamp_data
     timestamps = data_by_device.keys()
-    timestamps = sorted(timestamps)
+    if settings.DEFAULT_TIME_PRECISION:
+        timestamps = sorted(timestamps)
+    else:
+        timestamps = sorted(
+            timestamps, key=lambda timestamp: parser.parse(timestamp)
+        )
     data = []
     data.append(['time'] + devices)
     for timestamp in timestamps:
@@ -472,6 +484,22 @@ def create_timeseries(measurement):
     )
 
 
+TYPE_CONVERTERS = [(
+    re.compile(r'^true|false|True|False$'), bool
+), (
+    re.compile(r'^[+-]?\d+$'), long
+), (
+    re.compile(r'^[+-]?\d+(.\d+)?([e|E][+-]?\d+)$'), float
+)]
+
+
+def _convert_timeseries_value(value):
+    for pattern, converter in TYPE_CONVERTERS:
+        if pattern.match(value):
+            return converter(value)
+    return value
+
+
 @app.route(
     "/import/timeseries/<datacenter>/<device_type>/<measurement>",
     methods=['POST']
@@ -505,7 +533,11 @@ def import_timeseries(datacenter, device_type, measurement):
                 data = dict(zip(fields, row))
                 for field, value in six.iteritems(data):
                     if value:
-                        data_by_device[field][timestamp] = float(value)
+                        data_by_device[
+                            field
+                        ][timestamp] = _convert_timeseries_value(
+                            value
+                        )
     status = True
     with database.influx_session() as session:
         for device, device_data in six.iteritems(data_by_device):
@@ -601,6 +633,11 @@ def delete_device_timeseries(datacenter, device_type, device, measurement):
         'device': device
     })
     return _delete_timeseries(measurement, data)
+
+
+@app.route("/", methods=['GET'])
+def index():
+    return utils.make_template_response(200, {}, 'index.html')
 
 
 def init():
