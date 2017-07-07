@@ -40,7 +40,25 @@ def tasks_setup_logging(**_):
     logsetting.init()
 
 
-@celery.task(name='energy_saving.tasks.train', ignore_result=False)
-def train_model():
-    """Deploy the given task services."""
-    pass
+@celery.task(name='energy_saving.tasks.build_model')
+def build_model(datacenter, model_type):
+    """build machine learning model for datacenter."""
+    logger.debug('build model %s for %s', model_type, datacenter)
+
+
+@celery.task(name='energy_saving.tasks.train_model')
+def train_model(datacenter, model_type):
+    """train machine learning model for datacenter."""
+    logger.debug('train model %s for %s', model_type, datacenter)
+
+
+@celery.task(name='energy_saving.tasks.test_model')
+def test_model(datacenter, model_type):
+    """test machine learning model for datacenter."""
+    logger.debug('test model %s for %s', model_type, datacenter)
+
+
+@celery.task(name='energy_saving.tasks.apply_model')
+def apply_model(datacenter, model_type):
+    """apply machine learning model for datacenter."""
+    logger.debug('apply model %s for %s', model_type, datacenter)

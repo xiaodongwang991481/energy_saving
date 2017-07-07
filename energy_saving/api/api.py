@@ -16,6 +16,7 @@ from energy_saving.api import app
 from energy_saving.api import exception_handler
 from energy_saving.api import utils
 from energy_saving.db import database
+from energy_saving.tasks import client as celery_client
 from energy_saving.utils import logsetting
 from energy_saving.utils import settings
 
@@ -638,6 +639,78 @@ def delete_device_timeseries(datacenter, device_type, device, measurement):
 @app.route("/", methods=['GET'])
 def index():
     return utils.make_template_response(200, {}, 'index.html')
+
+
+@app.route("/models/<datacenter>/<model_type>/build", methods=['POST'])
+def build_model(datacenter, model_type):
+    try:
+        celery_client.celery.send_task(
+            'energy_saving.tasks.build_model', (
+                datacenter, model_type
+            )
+        )
+    except Exception as error:
+        logging.exception(error)
+        raise exception_handler.Forbidden(
+            'failed to send build_model to celery'
+        )
+    return utils.make_json_response(
+        200, {}
+    )
+
+
+@app.route("/models/<datacenter>/<model_type>/train", methods=['POST'])
+def train_model(datacenter, model_type):
+    try:
+        celery_client.celery.send_task(
+            'energy_saving.tasks.train_model', (
+                datacenter, model_type
+            )
+        )
+    except Exception as error:
+        logging.exception(error)
+        raise exception_handler.Forbidden(
+            'failed to send train_model to celery'
+        )
+    return utils.make_json_response(
+        200, {}
+    )
+
+
+@app.route("/models/<datacenter>/<model_type>/test", methods=['POST'])
+def test_model(datacenter, model_type):
+    try:
+        celery_client.celery.send_task(
+            'energy_saving.tasks.test_model', (
+                datacenter, model_type
+            )
+        )
+    except Exception as error:
+        logging.exception(error)
+        raise exception_handler.Forbidden(
+            'failed to send test_model to celery'
+        )
+    return utils.make_json_response(
+        200, {}
+    )
+
+
+@app.route("/models/<datacenter>/<model_type>/apply", methods=['POST'])
+def apply_model(datacenter, model_type):
+    try:
+        celery_client.celery.send_task(
+            'energy_saving.tasks.apply_model', (
+                datacenter, model_type
+            )
+        )
+    except Exception as error:
+        logging.exception(error)
+        raise exception_handler.Forbidden(
+            'failed to send apply_model to celery'
+        )
+    return utils.make_json_response(
+        200, {}
+    )
 
 
 def init():

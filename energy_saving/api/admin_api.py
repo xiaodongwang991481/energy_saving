@@ -1,4 +1,5 @@
 import logging
+import six
 
 from flask_admin.contrib.fileadmin import FileAdmin
 from flask_admin.contrib.sqla.fields import QuerySelectField
@@ -71,30 +72,10 @@ class BaseModelView(ModelView):
 
 
 def init():
-    admin.add_view(
-        BaseModelView(models.Datacenter, database.SCOPED_SESSION())
-    )
-    admin.add_view(
-        BaseModelView(models.Sensor, database.SCOPED_SESSION())
-    )
-    admin.add_view(
-        BaseModelView(models.Controller, database.SCOPED_SESSION())
-    )
-    admin.add_view(
-        BaseModelView(models.SensorAttr, database.SCOPED_SESSION())
-    )
-    admin.add_view(
-        BaseModelView(models.ControllerAttr, database.SCOPED_SESSION())
-    )
-    admin.add_view(
-        BaseModelView(models.ControllerParam, database.SCOPED_SESSION())
-    )
-    admin.add_view(
-        BaseModelView(models.EnvironmentSensor, database.SCOPED_SESSION())
-    )
-    admin.add_view(
-        BaseModelView(models.EnvironmentSensorAttr, database.SCOPED_SESSION())
-    )
+    for model_name, model in six.iteritems(MODELS):
+        admin.add_view(
+            BaseModelView(model, database.SCOPED_SESSION())
+        )
     admin.add_view(
         FileAdmin(settings.DATA_DIR, '/static/', name='Static Files')
     )

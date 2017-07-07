@@ -1,5 +1,6 @@
 """Database model"""
 import logging
+from oslo_utils import uuidutils
 
 from sqlalchemy import Column
 from sqlalchemy import Enum
@@ -31,6 +32,10 @@ class AttrMixin(object):
     deviation = Column(Float())
     max = Column(Float())
     min = Column(Float())
+    differentiation_mean = Column(Float())
+    differentiation_deviation = Column(Float())
+    differentiation_max = Column(Float())
+    differentiation_min = Column(Float())
     possible_values = Column(JSON)
 
 
@@ -75,13 +80,6 @@ class Datacenter(BASE, LocationMixin):
         cascade='all, delete-orphan',
         backref=backref('datacenter')
     )
-    sensor_attribute_data = relationship(
-        'SensorAttrData',
-        foreign_keys='[SensorAttrData.datacenter_name]',
-        passive_deletes=True,
-        cascade='all, delete-orphan',
-        backref=backref('datacenter')
-    )
     controllers = relationship(
         'Controller',
         foreign_keys='[Controller.datacenter_name]',
@@ -96,23 +94,9 @@ class Datacenter(BASE, LocationMixin):
         cascade='all, delete-orphan',
         backref=backref('datacenter')
     )
-    controller_attribute_data = relationship(
-        'ControllerAttrData',
-        foreign_keys='[ControllerAttrData.datacenter_name]',
-        passive_deletes=True,
-        cascade='all, delete-orphan',
-        backref=backref('datacenter')
-    )
     controller_parameters = relationship(
         'ControllerParam',
         foreign_keys='[ControllerParam.datacenter_name]',
-        passive_deletes=True,
-        cascade='all, delete-orphan',
-        backref=backref('datacenter')
-    )
-    controller_parameter_data = relationship(
-        'ControllerParamData',
-        foreign_keys='[ControllerParamData.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
         backref=backref('datacenter')
@@ -131,9 +115,17 @@ class Datacenter(BASE, LocationMixin):
         cascade='all, delete-orphan',
         backref=backref('datacenter')
     )
-    environment_sensor_attribute_data = relationship(
-        'EnvironmentSensorAttrData',
-        foreign_keys='[EnvironmentSensorAttrData.datacenter_name]',
+    energy_optimazation_target = relationship(
+        'EnergyOptimazationTarget',
+        foreign_keys='[EnergyOptimazationTarget.datacenter_name]',
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('datacenter', uselist=False),
+        uselist=False
+    )
+    predictions = relationship(
+        'Prediction',
+        foreign_keys='[Prediction.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
         backref=backref('datacenter')
@@ -199,10 +191,49 @@ class SensorAttr(BASE, AttrMixin):
         cascade='all, delete-orphan',
         backref=backref('attribute')
     )
+    slo = relationship(
+        'SensorAttrSLO',
+        foreign_keys=(
+            '[SensorAttrSLO.datacenter_name,'
+            'SensorAttrSLO.sensor_attribute_name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('attribute')
+    )
 
     def __str__(self):
         return 'SensorAttr[datacenter_name=%s,name=%s]' % (
             self.datacenter_name, self.name
+        )
+
+
+class SensorAttrSLO(BASE):
+    """Sensor attribute slo."""
+    __tablename__ = 'sensor_attribute_slo'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    sensor_attribute_name = Column(String(36), primary_key=True)
+    min_threshold = Column(Float())
+    max_threshold = Column(Float())
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'sensor_attribute_name'],
+            ['sensor_attribute.datacenter_name', 'sensor_attribute.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        )
+    )
+
+    def __str__(self):
+        return 'SensorAttrSLO[datacenter_name=%s,sensor_attribute_name=%s]' % (
+            self.datacenter_name, self.sensor_attribute_name
         )
 
 
@@ -237,6 +268,17 @@ class SensorAttrData(BASE):
             ['sensor.datacenter_name', 'sensor.name'],
             onupdate="CASCADE", ondelete="CASCADE"
         )
+    )
+    sensor_attribute_predictions = relationship(
+        'SensorAttrPrediction',
+        foreign_keys=(
+            '[SensorAttrPrediction.datacenter_name,'
+            'SensorAttrPrediction.sensor_name,'
+            'SensorAttrPrediction.sensor_attribute_name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('datacenter')
     )
 
     def __str__(self):
@@ -430,6 +472,17 @@ class ControllerParamData(BASE):
             onupdate="CASCADE", ondelete="CASCADE"
         )
     )
+    controller_parameter_predictions = relationship(
+        'ControllerParamPrediction',
+        foreign_keys=(
+            '[ControllerParamPrediction.datacenter_name,'
+            'ControllerParamPrediction.controller_name,'
+            'ControllerParamPrediction.controller_parameter_name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('controller_parameter')
+    )
 
     def __str__(self):
         return (
@@ -503,7 +556,7 @@ class EnvironmentSensorAttr(BASE, AttrMixin):
         )
 
 
-class EnvironmentSensorAttrData(BASE, AttrMixin):
+class EnvironmentSensorAttrData(BASE):
     """Environment sensor attribute data table."""
     __tablename__ = 'environment_sensor_attribute_data'
     datacenter_name = Column(
@@ -545,4 +598,340 @@ class EnvironmentSensorAttrData(BASE, AttrMixin):
             'environment_sensor_name=%s,name=%s]'
         ) % (
             self.datacenter_name, self.environment_sensor_name, self.name
+        )
+
+
+class EnergyOptimazationTarget(BASE, AttrMixin):
+    """Energy optimazation target table."""
+    __tablename__ = 'energy_optimazation_target'
+    datacenter_name = Column(
+        String(36),
+        ForeignKey('datacenter.name', onupdate='CASCADE', ondelete='CASCADE'),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    properties = Column(JSON)
+    energy_optimazation_target_data = relationship(
+        'EnergyOptimazationTargetData',
+        foreign_keys=(
+            '[EnergyOptimazationTargetData.datacenter_name,'
+            'EnergyOptimazationTargetData.energy_optimazation_target_name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('energy_optimazation_target')
+    )
+
+    def __str__(self):
+        return 'EnergyOptimazationTarget[datacenter_name=%s,name=%s]' % (
+            self.datacenter_name, self.name
+        )
+
+
+class EnergyOptimazationTargetData(BASE):
+    """Energy optimazation target data table."""
+    __tablename__ = 'energy_optimazation_target_data'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    energy_optimazation_target_name = Column(
+        String(36),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'energy_optimazation_target_name'],
+            [
+                'energy_optimazation_target.datacenter_name',
+                'energy_optimazation_target.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+    )
+    energy_optimazation_target_predictions = relationship(
+        'EnergyOptimazationTargetPrediction',
+        foreign_keys=(
+            '[EnergyOptimazationTargetPrediction.datacenter_name,'
+            'EnergyOptimazationTargetPrediction.'
+            'energy_optimazation_target_name,'
+            'EnergyOptimazationTargetPrediction.'
+            'energy_optimazation_target_data_name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('energy_optimazation_target_data')
+    )
+
+    def __str__(self):
+        return 'EnergyOptimazationTargetData[datacenter_name=%s,name=%s]' % (
+            self.datacenter_name, self.name
+        )
+
+
+class Prediction(BASE):
+    """Prediction table."""
+    __tablename__ = 'prediction'
+    datacenter_name = Column(
+        String(36),
+        ForeignKey('datacenter.name', onupdate='CASCADE', ondelete='CASCADE'),
+        primary_key=True
+    )
+    name = Column(
+        String(36),
+        primary_key=True,
+        default=uuidutils.generate_uuid
+    )
+
+    sensor_attribute_predictions = relationship(
+        'SensorAttrPrediction',
+        foreign_keys=(
+            '[SensorAttrPrediction.datacenter_name,'
+            'SensorAttrPrediction.prediction_name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('prediction')
+    )
+    controller_parameter_predictions = relationship(
+        'ControllerParamPrediction',
+        foreign_keys=(
+            '[ControllerParamPrediction.datacenter_name,'
+            'ControllerParamPrediction.prediction_name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('prediction')
+    )
+    energy_optimazation_target_predications = relationship(
+        'EnergyOptimazationTargetPrediction',
+        foreign_keys=(
+            '[EnergyOptimazationTargetPrediction.datacenter_name,'
+            'EnergyOptimazationTargetPrediction.prediction_name]'
+        ),
+        cascade='all, delete-orphan',
+        backref=backref('prediction')
+    )
+
+    def __str__(self):
+        return 'Prediction[datacenter_name=%s,name=%s]' % (
+            self.datacenter_name, self.name
+        )
+
+
+class SensorAttrPrediction(BASE):
+    'sensor attribute prediction table.'
+    __tablename__ = 'sensor_attribute_prediction'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    prediction_name = Column(
+        String(36),
+        primary_key=True
+    )
+    sensor_name = Column(
+        String(36),
+        primary_key=True
+    )
+    sensor_attribute_name = Column(
+        String(36),
+        primary_key=True
+    )
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'prediction_name'],
+            [
+                'prediction.datacenter_name',
+                'prediction.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'sensor_name'],
+            [
+                'sensor.datacenter_name',
+                'sensor.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'sensor_attribute_name'],
+            [
+                'sensor_attribute.datacenter_name',
+                'sensor_attribute.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'sensor_name', 'sensor_attribute_name'],
+            [
+                'sensor_attribute_data.datacenter_name',
+                'sensor_attribute_data.sensor_name',
+                'sensor_attribute_data.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        )
+    )
+
+    def __str__(self):
+        return (
+            'SensorAttrPrediction[datacenter_name=%s,'
+            'prediction_name=%s,sensor_name=%s,sensor_attribute_name=%s]' % (
+                self.datacenter_name, self.prediction_name,
+                self.sensor_name, self.sensor_attribute_name
+            )
+        )
+
+
+class ControllerParamPrediction(BASE):
+    'controller parameter prediction table.'
+    __tablename__ = 'controller_parameter_prediction'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    prediction_name = Column(
+        String(36),
+        primary_key=True
+    )
+    controller_name = Column(
+        String(36),
+        primary_key=True
+    )
+    controller_parameter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'prediction_name'],
+            [
+                'prediction.datacenter_name',
+                'prediction.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'controller_name'],
+            [
+                'controller.datacenter_name',
+                'controller.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'controller_parameter_name'],
+            [
+                'controller_parameter.datacenter_name',
+                'controller_parameter.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            [
+                'datacenter_name', 'controller_name',
+                'controller_parameter_name'
+            ],
+            [
+                'controller_parameter_data.datacenter_name',
+                'controller_parameter_data.controller_name',
+                'controller_parameter_data.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        )
+    )
+
+    def __str__(self):
+        return (
+            'ControllerParamPrediction[datacenter_name=%s,'
+            'prediction_name=%s,controller_name=%s,'
+            'controller_parameter_name=%s]' % (
+                self.datacenter_name, self.prediction_name,
+                self.controller_name, self.controller_parameter_name
+            )
+        )
+
+
+class EnergyOptimazationTargetPrediction(BASE):
+    'energy optimazation target prediction table.'
+    __tablename__ = 'energy_optimazation_target_prediction'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    prediction_name = Column(
+        String(36),
+        primary_key=True
+    )
+    energy_optimazation_target_name = Column(
+        String(36),
+        primary_key=True
+    )
+    energy_optimazation_target_data_name = Column(
+        String(36),
+        primary_key=True
+    )
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'prediction_name'],
+            [
+                'prediction.datacenter_name',
+                'prediction.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'energy_optimazation_target_name'],
+            [
+                'energy_optimazation_target.datacenter_name',
+                'energy_optimazation_target.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            [
+                'datacenter_name', 'energy_optimazation_target_name',
+                'energy_optimazation_target_data_name'
+            ],
+            [
+                'energy_optimazation_target_data.datacenter_name',
+                'energy_optimazation_target_data.'
+                'energy_optimazation_target_name',
+                'energy_optimazation_target_data.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        )
+    )
+
+    def __str__(self):
+        return (
+            'EnergyOptimazationTargetPrediction[datacenter_name=%s,'
+            'prediction_name=%s,energy_optimazation_target_name=%s,'
+            'energy_optimazation_target_data_name=%s]' % (
+                self.datacenter_name, self.prediction_name,
+                self.energy_optimazation_target_name,
+                self.energy_optimazation_target_data_name
+            )
         )
