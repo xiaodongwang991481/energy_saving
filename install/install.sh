@@ -19,15 +19,12 @@ sudo apt-get install -y libmysqlclient-dev mysql-client mysql-server ntp ntpdate
 sudo apt-get install -y git python-pip python-setuptools python-tox python-dev gcc rabbitmq-server celeryd librabbitmq-dev openssl || exit 1
 sudo apt-get install -y apache2 libapache2-mod-wsgi || exit 1
 sudo apt-get install -y influxdb || exit 1
-sudo a2enmod proxy
-sudo a2enmod proxy-http
 
 cd ${ENERGY_SAVING_DIR}
 
 sudo pip install -r requirements.txt -r test-requirements.txt || exit 1
 sudo python setup.py install || exit 1
 
-sudo ntpdate $NTP_SERVERS
 for NTP_SERVER in $NTP_SERVERS; do
     sed -i "/prepend customized ntp servers above/i \
 server $NTP_SERVER iburst" /etc/ntp.conf
@@ -35,6 +32,8 @@ server $NTP_SERVER iburst" /etc/ntp.conf
 $NTP_SERVER" /etc/ntp/step-tickers
 done
 sudo systemctl enable ntp.service
+sudo systemctl stop ntp.service
+sudo ntpdate $NTP_SERVERS || exit 1
 sudo systemctl restart ntp.service
 sudo systemctl status ntp.service
 if [[ "$?" != "0" ]]; then
@@ -65,60 +64,37 @@ fi
 sudo mysqladmin -u${MYSQL_USER} -p"${MYSQL_OLD_PASSWORD}" password ${MYSQL_PASSWORD}
 if [[ "$?" != "0" ]]; then
     echo "setting up mysql server initial password"
-    sudo mysqladmin -u ${MYSQL_USER} password ${MYSQL_PASSWORD}
-    if [[ "$?" != "0" ]]; then
-        echo "failed to setup initial mysql server password"
-        exit 1
-    else
-        echo "mysql server password is initialized"
-    fi
+    sudo mysqladmin -u ${MYSQL_USER} password ${MYSQL_PASSWORD} || exit 1
+    echo "mysql server password is initialized"
 else
     echo "mysql serverpassword is updated"
 fi
-sudo mysql -u${MYSQL_USER} -p${MYSQL_PASSWORD} -e "show databases;"
-if [[ "$?" != "0" ]]; then
-    echo "mysql server password set failed"
-    exit 1
-else
-    echo "mysql server password set succeeded"
-fi
-sudo mysql -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "GRANT ALL ON *.* to '${MYSQL_USER}'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}'; flush privileges;"
-if [[ "$?" != "0" ]]; then
-    echo "failed to update mysql server privileges to all"
-    exit 1
-    echo "mysql server privileges are updated"
-fi
-sudo mysql -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "GRANT ALL ON *.* to '${MYSQL_USER}'@'${MYSQL_SERVER_IP}' IDENTIFIED BY '${MYSQL_PASSWORD}'; flush privileges;"
-if [[ "$?" != "0" ]]; then
-    echo "failed to update mysql server privileges to ${MYSQL_SERVER_IP}"
-    exit 1
-else
-    echo "mysql server privileges are updated"
-fi
+sudo mysql -u${MYSQL_USER} -p${MYSQL_PASSWORD} -e "show databases;" || exit 1
+echo "mysql server password set succeeded"
 
-sudo sudo mysql -h${MYSQL_SERVER_IP} --port=${MYSQL_SERVER_PORT} -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "drop database ${MYSQL_DATABASE};"
-sudo sudo mysql -h${MYSQL_SERVER_IP} --port=${MYSQL_SERVER_PORT} -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "create database ${MYSQL_DATABASE};"
-if [[ "$?" != "0" ]]; then
-    echo "mysql database set failed"
-    exit 1
-else
-    echo "mysql database is set"
-fi
-sudo mkdir -p /var/log/energy_saving
-sudo chmod 777 /var/log/energy_saving
-sudo mkdir -p /var/www/energy_saving_web
-sudo chmod 777 /var/www/energy_saving_web
-sudo a2ensite energy-saving.conf
+sudo mysql -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "GRANT ALL ON *.* to '${MYSQL_USER}'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}'; flush privileges;" || exit 1
+echo "mysql server privileges are updated"
 
-sudo energy-saving-db-manage upgrade heads
-if [[ "$?" != "0" ]]; then
-    echo "failed to create db schema"
-    exit 1
-else
-    echo "db schema is created"
-fi
+sudo mysql -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "GRANT ALL ON *.* to '${MYSQL_USER}'@'${MYSQL_SERVER_IP}' IDENTIFIED BY '${MYSQL_PASSWORD}'; flush privileges;" || exit 1
+echo "mysql server privileges are updated"
+
+sudo sudo mysql -h${MYSQL_SERVER_IP} --port=${MYSQL_SERVER_PORT} -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "drop database ${MYSQL_DATABASE};" || exit 1
+sudo sudo mysql -h${MYSQL_SERVER_IP} --port=${MYSQL_SERVER_PORT} -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "create database ${MYSQL_DATABASE};" || exit 1
+echo "mysql database is created"
+sudo mkdir -p /var/log/energy_saving || exit 1
+sudo chmod 777 /var/log/energy_saving || exit 1
+sudo mkdir -p /var/www/energy_saving_web || exit 1
+sudo chmod 777 /var/www/energy_saving_web || exit 1
+
+sudo cp -n conf/energy-saving.conf /etc/apache2/sites-available/ || exit 1
+sudo sed -i "s/\$ENERGY_SAVING_PORT/$ENERGY_SAVING_PORT/g" /etc/apache2/sites-available/energy-saving.conf || exit 1
+
+sudo a2ensite energy-saving.conf || exit 1
+
+sudo energy-saving-db-manage upgrade heads || exit 1
+echo "db schema is created"
+
 sudo systemctl daemon-reload
-
 sudo systemctl enable apache2.service
 sudo systemctl restart apache2.service
 sudo systemctl status apache2.service
@@ -138,13 +114,14 @@ if [[ "$?" != "0" ]]; then
 else
     echo "influxdb is restarted"
 fi
-sudo influx -execute "CREATE DATABASE energy_saving"
-sudo influx -execute "CREATE RETENTION POLICY forever ON energy_saving DURATION INF REPLICATION 1 DEFAULT"
+sleep 10
+sudo influx -execute "CREATE DATABASE energy_saving" || exit 1
+sudo influx -execute "CREATE RETENTION POLICY forever ON energy_saving DURATION INF REPLICATION 1 DEFAULT" || exit 1
 
-sudo rabbitmq-plugins enable rabbitmq_management
-sudo rabbitmqctl change_password guest guest
-sudo rabbitmqctl set_user_tags guest administrator
-sudo rabbitmqctl set_permissions -p / guest ".*" ".*" ".*"
+sudo rabbitmq-plugins enable rabbitmq_management || exit 1
+sudo rabbitmqctl change_password guest guest || exit 1
+sudo rabbitmqctl set_user_tags guest administrator || exit 1
+sudo rabbitmqctl set_permissions -p / guest ".*" ".*" ".*" || exit 1
 
 sudo systemctl enable energy-saving-celereyd.service
 sudo systemctl restart energy-saving-celeryd.service
