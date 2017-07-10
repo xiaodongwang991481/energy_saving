@@ -2,6 +2,13 @@ import logging
 import stevedore
 
 
+logger = logging.getLogger(__name__)
+
+
+class ModelTypeNotFoundException(Exception):
+    pass
+
+
 class ModelTypeManager(stevedore.extension.ExtensionManager):
 
     def __init__(self):
@@ -23,4 +30,6 @@ class ModelTypeManager(stevedore.extension.ExtensionManager):
         )
         if name in self.model_types:
             return self.model_types[name].obj
-        return self.model_types['default'].obj
+        raise ModelTypeNotFoundException(
+            'model type %s does not found' % name
+        )
