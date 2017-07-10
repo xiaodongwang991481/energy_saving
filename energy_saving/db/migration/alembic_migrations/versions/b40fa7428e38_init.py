@@ -1,8 +1,8 @@
 """init
 
-Revision ID: 65e726eb9e84
+Revision ID: b40fa7428e38
 Revises: 
-Create Date: 2017-07-07 00:29:37.061636
+Create Date: 2017-07-10 15:12:23.241194
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '65e726eb9e84'
+revision = 'b40fa7428e38'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -188,6 +188,15 @@ def upgrade():
     sa.ForeignKeyConstraint(['datacenter_name'], ['datacenter.name'], onupdate='CASCADE', ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('datacenter_name', 'sensor_name', 'name')
     )
+    op.create_table('sensor_attribute_slo',
+    sa.Column('datacenter_name', sa.String(length=36), nullable=False),
+    sa.Column('sensor_attribute_name', sa.String(length=36), nullable=False),
+    sa.Column('min_threshold', sa.Float(), nullable=True),
+    sa.Column('max_threshold', sa.Float(), nullable=True),
+    sa.ForeignKeyConstraint(['datacenter_name', 'sensor_attribute_name'], ['sensor_attribute.datacenter_name', 'sensor_attribute.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['datacenter_name'], ['datacenter.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('datacenter_name', 'sensor_attribute_name')
+    )
     op.create_table('controller_parameter_prediction',
     sa.Column('datacenter_name', sa.String(length=36), nullable=False),
     sa.Column('prediction_name', sa.String(length=36), nullable=False),
@@ -231,6 +240,7 @@ def downgrade():
     op.drop_table('sensor_attribute_prediction')
     op.drop_table('energy_optimazation_target_prediction')
     op.drop_table('controller_parameter_prediction')
+    op.drop_table('sensor_attribute_slo')
     op.drop_table('sensor_attribute_data')
     op.drop_table('environment_sensor_attribute_data')
     op.drop_table('energy_optimazation_target_data')
