@@ -110,7 +110,6 @@ sudo mkdir -p /var/www/energy_saving_web
 sudo chmod 777 /var/www/energy_saving_web
 sudo a2ensite energy-saving.conf
 
-sudo energy-saving-db-manage revision -m"init" --autogenerate
 sudo energy-saving-db-manage upgrade heads
 if [[ "$?" != "0" ]]; then
     echo "failed to create db schema"
@@ -141,6 +140,11 @@ else
 fi
 sudo influx -execute "CREATE DATABASE energy_saving"
 sudo influx -execute "CREATE RETENTION POLICY forever ON energy_saving DURATION INF REPLICATION 1 DEFAULT"
+
+sudo rabbitmq-plugins enable rabbitmq_management
+sudo rabbitmqctl change_password guest guest
+sudo rabbitmqctl set_user_tags guest administrator
+sudo rabbitmqctl set_permissions -p / guest ".*" ".*" ".*"
 
 sudo systemctl enable energy-saving-celereyd.service
 sudo systemctl restart energy-saving-celeryd.service

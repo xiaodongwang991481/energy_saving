@@ -11,7 +11,6 @@ from energy_saving.utils import settings
 CELERY_RESULT_BACKEND = 'amqp://'
 
 BROKER_PROTOCOL = 'amqp'
-DEFAULT_BROKER_USER = 'guest'
 BROKER_USER = 'guest'
 BROKER_PASSWORD = 'guest'
 BROKER_HOST = 'rabbitmq'

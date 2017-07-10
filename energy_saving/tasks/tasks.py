@@ -10,6 +10,7 @@ from celery.signals import setup_logging
 from oslo_config import cfg
 
 from energy_saving.db import database
+from energy_saving.models import model_type_manager
 from energy_saving.tasks.client import celery
 from energy_saving.utils import logsetting
 from energy_saving.utils import settings
@@ -25,19 +26,20 @@ CONF.register_opts(opts)
 
 
 logger = logging.getLogger(__name__)
+manager = model_type_manager.ModelTypeManager()
 
 
 @celeryd_init.connect()
 def global_celery_init(**_):
     """Initialization code."""
-    logsetting.init()
+    logsetting.init(CONF.logfile)
     database.init()
 
 
 @setup_logging.connect()
 def tasks_setup_logging(**_):
-    """Setup logging options from orca setting."""
-    logsetting.init()
+    """Setup logging options from energy saving setting."""
+    logsetting.init(CONF.logfile)
 
 
 @celery.task(name='energy_saving.tasks.build_model')

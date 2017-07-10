@@ -14,6 +14,7 @@ Flask-Bootstrap
 importlib
 influxdb
 MySQL-python
+pandas
 SQLAlchemy
 sqlalchemy_schemadisplay
 SQLAlchemy-Utils
