@@ -61,11 +61,7 @@ class Datacenter(BASE, LocationMixin):
         server_default='production'
     )
     properties = Column(JSON)
-    sensor_attributes_prediction_model = Column(String(36))
-    controller_attributes_prediction_model = Column(String(36))
-    pue_prediction_model = Column(String(36))
-    best_controller_params_model = Column(String(36))
-    decision_model = Column(String(36))
+    models = Column(JSON)
     sensors = relationship(
         'Sensor',
         foreign_keys='[Sensor.datacenter_name]',

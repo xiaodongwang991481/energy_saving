@@ -201,6 +201,39 @@ def health():
     )
 
 
+@app.route("/metadata/database/models", methods=['GET'])
+def list_database_models():
+    models = {}
+    for model_name, model in six.iteritems(admin_api.MODELS):
+        models[model_name] = model.__mapper__.columns.keys()
+    return utils.make_json_response(
+        200, models
+    )
+
+
+@app.route("/metadata/database/models/<model_name>", methods=['GET'])
+def list_database_model_fields(model_name):
+    model = admin_api.MODELS[model_name]
+    columns = {}
+    for column_name, column in six.iteritems(model.__mapper__.columns):
+        columns[model_name] = repr(column)
+    return utils.make_json_response(
+        200, columns
+    )
+
+
+@app.route("/metadata/timeseries/models", methods=['GET'])
+def list_timeseries_models():
+    models = {}
+    with database.session() as session:
+        datacenters = session.query(models.Datacenter)
+        for datacenter in datacenters:
+            models[datacenter.name] = {}
+    return utils.make_json_response(
+        200, models
+    )
+
+
 @app.route("/import/database/<model_name>", methods=['POST'])
 def upload_model(model_name):
     logger.debug('upload model %s', model_name)
@@ -327,6 +360,19 @@ def list_datacenter_timeseries(datacenter, measurement):
 
 
 @app.route(
+    "/timeseries/<datacenter>/<device_type>/<measurement>",
+    methods=['GET']
+)
+def list_device_type_timeseries(datacenter, device_type, measurement):
+    data = _get_request_args()
+    data.update({
+        'datacenter': datacenter,
+        'device_type': device_type
+    })
+    return _list_timeseries(measurement, data)
+
+
+@app.route(
     "/timeseries/<datacenter>/<device_type>/<device>/<measurement>",
     methods=['GET']
 )
@@ -437,9 +483,19 @@ def generate_datacenter_timeseries(data, tags):
     for device_type, device_type_data in six.iteritems(data):
         for device, device_data in six.iteritems(device_type_data):
             generated_tags.update({
-                device_type: device
+                'device_type': device_type,
+                'device': device
             })
             yield device_data, generated_tags
+
+
+def generate_device_type_timeseries(data, tags):
+    generated_tags = dict(tags)
+    for device, device_data in six.iteritems(data):
+        generated_tags.update({
+            'device': device
+        })
+        yield device_data, generated_tags
 
 
 def generate_device_timeseries(data, tags):
@@ -580,6 +636,27 @@ def create_datacenter_timeseries(datacenter, measurement):
 
 
 @app.route(
+    "/timeseries/<datacenter>/<device_type>/<measurement>",
+    methods=['POST']
+)
+def create_device_type_timeseries(datacenter, device_type, measurement):
+    data = _get_request_data()
+    logger.debug('timeseries data for %s: %s', measurement, data)
+    time_precision = data.pop(
+        'time_precision', settings.DEFAULT_TIME_PRECISION
+    )
+    tags = data.pop('tags', {})
+    tags.update({
+        'datacenter': datacenter,
+        'device_type': device_type
+    })
+    return _create_timeseries(
+        measurement, data, generate_device_type_timeseries,
+        tags, time_precision
+    )
+
+
+@app.route(
     "/timeseries/<datacenter>/<device_type>/<device>/<measurement>",
     methods=['POST']
 )
@@ -619,6 +696,19 @@ def delete_timeseries(measurement):
 def delete_datacenter_timeseries(datacenter, measurement):
     data = _get_request_data()
     data.update({'datacenter': datacenter})
+    return _delete_timeseries(measurement, data)
+
+
+@app.route(
+    "/timeseries/<datacenter>/<device_type>/<measurement>",
+    methods=['DELETE']
+)
+def delete_device_type_timeseries(datacenter, device_type, measurement):
+    data = _get_request_data()
+    data.update({
+        'datacenter': datacenter,
+        'device_type': device_type
+    })
     return _delete_timeseries(measurement, data)
 
 
