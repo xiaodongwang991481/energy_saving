@@ -111,6 +111,34 @@ class Datacenter(BASE, LocationMixin):
         cascade='all, delete-orphan',
         backref=backref('datacenter')
     )
+    power_supplies = relationship(
+        'PowerSupply',
+        foreign_keys='[PowerSupply.datacenter_name]',
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('datacenter')
+    )
+    power_supply_attributes = relationship(
+        'PowerSupplyAttr',
+        foreign_keys='[PowerSupplyAttr.datacenter_name]',
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('datacenter')
+    )
+    controller_power_supplies = relationship(
+        'ControllerPowerSupply',
+        foreign_keys='[ControllerPowerSupply.datacenter_name]',
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('datacenter')
+    )
+    controller_power_supply_attributes = relationship(
+        'ControllerPowerSupplyAttr',
+        foreign_keys='[ControllerPowerSupplyAttr.datacenter_name]',
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('datacenter')
+    )
     energy_optimazation_target = relationship(
         'EnergyOptimazationTarget',
         foreign_keys='[EnergyOptimazationTarget.datacenter_name]',
@@ -129,6 +157,220 @@ class Datacenter(BASE, LocationMixin):
 
     def __str__(self):
         return 'Datacenter{name=%s}' % self.name
+
+
+class PowerSupply(BASE, LocationMixin):
+    """power supply table."""
+    __tablename__ = 'power_supply'
+    datacenter_name = Column(
+        String(36),
+        ForeignKey(
+            'datacenter.name',
+            onupdate='CASCADE', ondelete='CASCADE'
+        ),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    properties = Column(JSON)
+    attribute_data = relationship(
+        'PowerSupplyAttrData',
+        foreign_keys=(
+            '[PowerSupplyAttrData.datacenter_name,'
+            'PowerSupplyAttrData.power_supply_name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('power_supply')
+    )
+
+    def __str__(self):
+        return 'PowerSupply[datacenter_name=%s,name=%s]' % (
+            self.datacenter_name, self.name
+        )
+
+
+class PowerSupplyAttr(BASE, AttrMixin):
+    """power supply attribute table."""
+    __tablename__ = 'power_supply_attribute'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    properties = Column(JSON)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+    )
+    attribute_data = relationship(
+        'PowerSupplyAttrData',
+        foreign_keys=(
+            '[PowerSupplyAttrData.datacenter_name,'
+            'PowerSupplyAttrData.name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('attribute')
+    )
+
+    def __str__(self):
+        return 'PowerSupplyAttr[datacenter_name=%s,name=%s]' % (
+            self.datacenter_name, self.name
+        )
+
+
+class PowerSupplyAttrData(BASE):
+    """power supply attribute data table."""
+    __tablename__ = 'power_supply_attribute_data'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    power_supply_name = Column(
+        String(36),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'name'],
+            [
+                'power_supply_attribute.datacenter_name',
+                'power_supply_attribute.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'power_supply_name'],
+            ['power_supply.datacenter_name', 'power_supply.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        )
+    )
+
+    def __str__(self):
+        return (
+            'PowerSupplyAttrData[datacenter_name=%s,'
+            'power_supply_name=%s,name=%s]'
+        ) % (
+            self.datacenter_name, self.power_supply_name, self.name
+        )
+
+
+class ControllerPowerSupply(BASE, LocationMixin):
+    """controller power supply table."""
+    __tablename__ = 'controller_power_supply'
+    datacenter_name = Column(
+        String(36),
+        ForeignKey(
+            'datacenter.name',
+            onupdate='CASCADE', ondelete='CASCADE'
+        ),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    properties = Column(JSON)
+    attribute_data = relationship(
+        'ControllerPowerSupplyAttrData',
+        foreign_keys=(
+            '[ControllerPowerSupplyAttrData.datacenter_name,'
+            'ControllerPowerSupplyAttrData.controller_power_supply_name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('controller_power_supply')
+    )
+
+    def __str__(self):
+        return 'ControllerPowerSupply[datacenter_name=%s,name=%s]' % (
+            self.datacenter_name, self.name
+        )
+
+
+class ControllerPowerSupplyAttr(BASE, AttrMixin):
+    """power supply attribute table."""
+    __tablename__ = 'controller_power_supply_attribute'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    properties = Column(JSON)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+    )
+    attribute_data = relationship(
+        'ControllerPowerSupplyAttrData',
+        foreign_keys=(
+            '[ControllerPowerSupplyAttrData.datacenter_name,'
+            'ControllerPowerSupplyAttrData.name]'
+        ),
+        passive_deletes=True,
+        cascade='all, delete-orphan',
+        backref=backref('attribute')
+    )
+
+    def __str__(self):
+        return 'ControllerPowerSupplyAttr[datacenter_name=%s,name=%s]' % (
+            self.datacenter_name, self.name
+        )
+
+
+class ControllerPowerSupplyAttrData(BASE):
+    """controller power supply attribute data table."""
+    __tablename__ = 'controller_power_supply_attribute_data'
+    datacenter_name = Column(
+        String(36),
+        primary_key=True
+    )
+    controller_power_supply_name = Column(
+        String(36),
+        primary_key=True
+    )
+    name = Column(String(36), primary_key=True)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['datacenter_name'],
+            ['datacenter.name'],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'name'],
+            [
+                'controller_power_supply_attribute.datacenter_name',
+                'controller_power_supply_attribute.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        ),
+        ForeignKeyConstraint(
+            ['datacenter_name', 'controller_power_supply_name'],
+            [
+                'controller_power_supply.datacenter_name',
+                'controller_power_supply.name'
+            ],
+            onupdate="CASCADE", ondelete="CASCADE"
+        )
+    )
+
+    def __str__(self):
+        return (
+            'ControllerPowerSupplyAttrData[datacenter_name=%s,'
+            'controller_power_supply_name=%s,name=%s]'
+        ) % (
+            self.datacenter_name, self.controller_power_supply_name,
+            self.name
+        )
 
 
 class Sensor(BASE, LocationMixin):

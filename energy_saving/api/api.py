@@ -228,7 +228,82 @@ def list_timeseries_models():
     with database.session() as session:
         datacenters = session.query(models.Datacenter)
         for datacenter in datacenters:
-            models[datacenter.name] = {}
+            models[datacenter.name] = {
+                'sensor_attribute': {},
+                'controller_attribute': {},
+                'controller_parameter': {},
+                'power_supply_attribute': {},
+                'controller_power_supply_attribute': {},
+                'environment_sensor_attribute': {}
+            }
+            attributes = models[datacenter.name]['sensor_attribute']
+            for attribute in datacenter.sensor_attibutes:
+                attributes[attribute.name] = []
+                attribute_data = attributes[
+                    attribute.name
+                ]
+                for data in attribute.attribute_data:
+                    attribute_data.append(data.sensor_name)
+            attributes = models[datacenter.name][
+                'environment_sensor_attribute'
+            ]
+            for attribute in (
+                datacenter.environment_sensor_attributes
+            ):
+                attributes[attribute.name] = []
+                attribute_data = attributes[
+                    attribute.name
+                ]
+                for data in attribute.attribute_data:
+                    attribute_data.append(data.environment_sensor_name)
+            attributes = models[datacenter.name][
+                'controller_attribute'
+            ]
+            for attribute in (
+                datacenter.controller_attributes
+            ):
+                attributes[attribute.name] = []
+                attribute_data = attributes[
+                    attribute.name
+                ]
+                for data in attribute.attribute_data:
+                    attribute_data.append(data.controller_name)
+            attributes = models[datacenter.name][
+                'controller_parameter'
+            ]
+            for attribute in (
+                datacenter.controller_parameters
+            ):
+                attributes[attribute.name] = []
+                attribute_data = attributes[
+                    attribute.name
+                ]
+                for data in attribute.parameter_data:
+                    attribute_data.append(data.controller_name)
+            attributes = models[datacenter.name][
+                'power_supply_attribute'
+            ]
+            for attribute in (
+                datacenter.power_supply_attributes
+            ):
+                attributes[attribute.name] = []
+                attribute_data = attributes[
+                    attribute.name
+                ]
+                for data in attribute.parameter_data:
+                    attribute_data.append(data.power_supply_name)
+            attributes = models[datacenter.name][
+                'controller_power_supply_attribute'
+            ]
+            for attribute in (
+                datacenter.controller_power_supply_attributes
+            ):
+                attributes[attribute.name] = []
+                attribute_data = attributes[
+                    attribute.name
+                ]
+                for data in attribute.parameter_data:
+                    attribute_data.append(data.controller_power_supply_name)
     return utils.make_json_response(
         200, models
     )
