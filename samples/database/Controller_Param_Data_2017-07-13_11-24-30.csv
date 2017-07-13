@@ -1,0 +1,5 @@
+datacenter_name,controller_name,name
+openlab,C001,set_humility
+openlab,C002,set_humility
+openlab,C001,set_temperature
+openlab,C002,set_temperature

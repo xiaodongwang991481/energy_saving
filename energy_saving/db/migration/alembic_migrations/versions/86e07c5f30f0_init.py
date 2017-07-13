@@ -1,8 +1,8 @@
 """init
 
-Revision ID: b40fa7428e38
+Revision ID: 86e07c5f30f0
 Revises: 
-Create Date: 2017-07-10 15:12:23.241194
+Create Date: 2017-07-13 11:06:34.447469
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'b40fa7428e38'
+revision = '86e07c5f30f0'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -23,11 +23,7 @@ def upgrade():
     sa.Column('name', sa.String(length=36), nullable=False),
     sa.Column('type', sa.Enum('production', 'lab'), server_default='production', nullable=True),
     sa.Column('properties', sa.JSON(), nullable=True),
-    sa.Column('sensor_attributes_prediction_model', sa.String(length=36), nullable=True),
-    sa.Column('controller_attributes_prediction_model', sa.String(length=36), nullable=True),
-    sa.Column('pue_prediction_model', sa.String(length=36), nullable=True),
-    sa.Column('best_controller_params_model', sa.String(length=36), nullable=True),
-    sa.Column('decision_model', sa.String(length=36), nullable=True),
+    sa.Column('models', sa.JSON(), nullable=True),
     sa.PrimaryKeyConstraint('name')
     )
     op.create_table('controller',
@@ -68,6 +64,32 @@ def upgrade():
     sa.ForeignKeyConstraint(['datacenter_name'], ['datacenter.name'], onupdate='CASCADE', ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('datacenter_name', 'name')
     )
+    op.create_table('controller_power_supply',
+    sa.Column('location', sa.JSON(), nullable=True),
+    sa.Column('datacenter_name', sa.String(length=36), nullable=False),
+    sa.Column('name', sa.String(length=36), nullable=False),
+    sa.Column('properties', sa.JSON(), nullable=True),
+    sa.ForeignKeyConstraint(['datacenter_name'], ['datacenter.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('datacenter_name', 'name')
+    )
+    op.create_table('controller_power_supply_attribute',
+    sa.Column('type', sa.Enum('binary', 'continuous', 'integer', 'discrete'), server_default='continuous', nullable=True),
+    sa.Column('unit', sa.String(length=36), nullable=True),
+    sa.Column('mean', sa.Float(), nullable=True),
+    sa.Column('deviation', sa.Float(), nullable=True),
+    sa.Column('max', sa.Float(), nullable=True),
+    sa.Column('min', sa.Float(), nullable=True),
+    sa.Column('differentiation_mean', sa.Float(), nullable=True),
+    sa.Column('differentiation_deviation', sa.Float(), nullable=True),
+    sa.Column('differentiation_max', sa.Float(), nullable=True),
+    sa.Column('differentiation_min', sa.Float(), nullable=True),
+    sa.Column('possible_values', sa.JSON(), nullable=True),
+    sa.Column('datacenter_name', sa.String(length=36), nullable=False),
+    sa.Column('name', sa.String(length=36), nullable=False),
+    sa.Column('properties', sa.JSON(), nullable=True),
+    sa.ForeignKeyConstraint(['datacenter_name'], ['datacenter.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('datacenter_name', 'name')
+    )
     op.create_table('energy_optimazation_target',
     sa.Column('type', sa.Enum('binary', 'continuous', 'integer', 'discrete'), server_default='continuous', nullable=True),
     sa.Column('unit', sa.String(length=36), nullable=True),
@@ -95,6 +117,32 @@ def upgrade():
     sa.PrimaryKeyConstraint('datacenter_name', 'name')
     )
     op.create_table('environment_sensor_attribute',
+    sa.Column('type', sa.Enum('binary', 'continuous', 'integer', 'discrete'), server_default='continuous', nullable=True),
+    sa.Column('unit', sa.String(length=36), nullable=True),
+    sa.Column('mean', sa.Float(), nullable=True),
+    sa.Column('deviation', sa.Float(), nullable=True),
+    sa.Column('max', sa.Float(), nullable=True),
+    sa.Column('min', sa.Float(), nullable=True),
+    sa.Column('differentiation_mean', sa.Float(), nullable=True),
+    sa.Column('differentiation_deviation', sa.Float(), nullable=True),
+    sa.Column('differentiation_max', sa.Float(), nullable=True),
+    sa.Column('differentiation_min', sa.Float(), nullable=True),
+    sa.Column('possible_values', sa.JSON(), nullable=True),
+    sa.Column('datacenter_name', sa.String(length=36), nullable=False),
+    sa.Column('name', sa.String(length=36), nullable=False),
+    sa.Column('properties', sa.JSON(), nullable=True),
+    sa.ForeignKeyConstraint(['datacenter_name'], ['datacenter.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('datacenter_name', 'name')
+    )
+    op.create_table('power_supply',
+    sa.Column('location', sa.JSON(), nullable=True),
+    sa.Column('datacenter_name', sa.String(length=36), nullable=False),
+    sa.Column('name', sa.String(length=36), nullable=False),
+    sa.Column('properties', sa.JSON(), nullable=True),
+    sa.ForeignKeyConstraint(['datacenter_name'], ['datacenter.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('datacenter_name', 'name')
+    )
+    op.create_table('power_supply_attribute',
     sa.Column('type', sa.Enum('binary', 'continuous', 'integer', 'discrete'), server_default='continuous', nullable=True),
     sa.Column('unit', sa.String(length=36), nullable=True),
     sa.Column('mean', sa.Float(), nullable=True),
@@ -162,6 +210,15 @@ def upgrade():
     sa.ForeignKeyConstraint(['datacenter_name'], ['datacenter.name'], onupdate='CASCADE', ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('datacenter_name', 'controller_name', 'name')
     )
+    op.create_table('controller_power_supply_attribute_data',
+    sa.Column('datacenter_name', sa.String(length=36), nullable=False),
+    sa.Column('controller_power_supply_name', sa.String(length=36), nullable=False),
+    sa.Column('name', sa.String(length=36), nullable=False),
+    sa.ForeignKeyConstraint(['datacenter_name', 'controller_power_supply_name'], ['controller_power_supply.datacenter_name', 'controller_power_supply.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['datacenter_name', 'name'], ['controller_power_supply_attribute.datacenter_name', 'controller_power_supply_attribute.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['datacenter_name'], ['datacenter.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('datacenter_name', 'controller_power_supply_name', 'name')
+    )
     op.create_table('energy_optimazation_target_data',
     sa.Column('datacenter_name', sa.String(length=36), nullable=False),
     sa.Column('energy_optimazation_target_name', sa.String(length=36), nullable=False),
@@ -178,6 +235,15 @@ def upgrade():
     sa.ForeignKeyConstraint(['datacenter_name', 'name'], ['environment_sensor_attribute.datacenter_name', 'environment_sensor_attribute.name'], onupdate='CASCADE', ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['datacenter_name'], ['datacenter.name'], onupdate='CASCADE', ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('datacenter_name', 'environment_sensor_name', 'name')
+    )
+    op.create_table('power_supply_attribute_data',
+    sa.Column('datacenter_name', sa.String(length=36), nullable=False),
+    sa.Column('power_supply_name', sa.String(length=36), nullable=False),
+    sa.Column('name', sa.String(length=36), nullable=False),
+    sa.ForeignKeyConstraint(['datacenter_name', 'name'], ['power_supply_attribute.datacenter_name', 'power_supply_attribute.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['datacenter_name', 'power_supply_name'], ['power_supply.datacenter_name', 'power_supply.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['datacenter_name'], ['datacenter.name'], onupdate='CASCADE', ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('datacenter_name', 'power_supply_name', 'name')
     )
     op.create_table('sensor_attribute_data',
     sa.Column('datacenter_name', sa.String(length=36), nullable=False),
@@ -242,16 +308,22 @@ def downgrade():
     op.drop_table('controller_parameter_prediction')
     op.drop_table('sensor_attribute_slo')
     op.drop_table('sensor_attribute_data')
+    op.drop_table('power_supply_attribute_data')
     op.drop_table('environment_sensor_attribute_data')
     op.drop_table('energy_optimazation_target_data')
+    op.drop_table('controller_power_supply_attribute_data')
     op.drop_table('controller_parameter_data')
     op.drop_table('controller_attribute_data')
     op.drop_table('sensor_attribute')
     op.drop_table('sensor')
     op.drop_table('prediction')
+    op.drop_table('power_supply_attribute')
+    op.drop_table('power_supply')
     op.drop_table('environment_sensor_attribute')
     op.drop_table('environment_sensor')
     op.drop_table('energy_optimazation_target')
+    op.drop_table('controller_power_supply_attribute')
+    op.drop_table('controller_power_supply')
     op.drop_table('controller_parameter')
     op.drop_table('controller_attribute')
     op.drop_table('controller')

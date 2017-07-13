@@ -1,0 +1,3 @@
+datacenter_name,sensor_attribute_name,min_threshold,max_threshold
+openlab,humility,20.0,30.0
+openlab,temperature,20.0,30.0

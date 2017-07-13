@@ -1,0 +1,3 @@
+type,unit,max,min,possible_values,datacenter_name,name,properties
+continuous,%,100.0,0.0,,openlab,set_humility,{}
+continuous,C,30.0,20.0,,openlab,set_temperature,{}
