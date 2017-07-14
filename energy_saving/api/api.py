@@ -166,7 +166,7 @@ def _int_converter(value):
         )
 
 
-def _get_request_args(**kwargs):
+def _get_request_args(as_list={}, **kwargs):
     """Get request args as dict.
 
     The value in the dict is converted to expected type.
@@ -175,15 +175,17 @@ def _get_request_args(**kwargs):
     """
     args = request.args.to_dict(flat=False)
     for key, value in args.items():
+        is_list = as_list.get(key, False)
+        logger.debug('request arg %s is list? %s', key, is_list)
+        if not is_list:
+            value = value[-1]
+            args[key] = value
         if key in kwargs:
             converter = kwargs[key]
             if isinstance(value, list):
                 args[key] = [converter(item) for item in value]
             else:
                 args[key] = converter(value)
-        if isinstance(args[key], list):
-            if len(args[key]) == 1:
-                args[key] = args[key][0]
     return args
 
 
@@ -374,7 +376,21 @@ def _get_where(data):
         return ''
 
 
-def _list_timeseries(measurement, data):
+def _get_group_by(group_by):
+    if isinstance(group_by, list):
+        return ', '.join(group_by)
+    else:
+        return group_by
+
+
+def _get_order_by(order_by):
+    if isinstance(order_by):
+        return ', '.join(order_by)
+    else:
+        return order_by
+
+
+def _list_timeseries(measurement, data, data_formatter=None):
     logger.debug('timeseries data: %s', data)
     response = {}
     query = data.pop('query', None)
@@ -392,11 +408,11 @@ def _list_timeseries(measurement, data):
         else:
             where_clause = ''
         if group_by:
-            group_by_clause = ' group by %s' % group_by
+            group_by_clause = ' group by %s' % _get_group_by(group_by)
         else:
             group_by_clause = ''
         if order_by:
-            order_by_clause = 'order by %s' % order_by
+            order_by_clause = 'order by %s' % _get_order_by(order_by)
         else:
             order_by_clause = ''
         query = 'select * from %s%s%s%s' % (
@@ -407,31 +423,78 @@ def _list_timeseries(measurement, data):
     with database.influx_session() as session:
         result = session.query(query, epoch=time_precision)
         response = list(result.get_points())
+        if data_formatter:
+            response = data_formatter(response)
     logger.debug('timeseries %s response: %s', measurement, response)
     return utils.make_json_response(
         200, response
     )
 
 
-@app.route("/timeseries", methods=['GET'])
-def list_all_timeseries():
-    data = _get_request_args()
-    return _list_timeseries('/.*/', data)
+def timeseries_formatter(data):
+    result = {}
+    for item in data:
+        datacenter_result = result.setdefault(item['datacenter'], {})
+        device_type_result = datacenter_result.setdefault(
+            item['device_type'], {}
+        )
+        timestamp_result = device_type_result.setdefault(item['time'], {})
+        timestamp_result[item['device']] = item['value']
+    return result
+
+
+def timeseries_datacenter_formatter(data):
+    result = {}
+    for item in data:
+        device_type_result = result.setdefault(
+            item['device_type'], {}
+        )
+        timestamp_result = device_type_result.setdefault(item['time'], {})
+        timestamp_result[item['device']] = item['value']
+    return result
+
+
+def timeseries_device_type_formatter(data):
+    result = {}
+    for item in data:
+        timestamp_result = result.setdefault(item['time'], {})
+        timestamp_result[item['device']] = item['value']
+    return result
+
+
+def timeseries_device_formatter(data):
+    result = {}
+    for item in data:
+        result[item['time']] = item['value']
+    return result
 
 
 @app.route("/timeseries/<measurement>", methods=['GET'])
 def list_timeseries(measurement):
-    data = _get_request_args()
-    return _list_timeseries(measurement, data)
+    data = _get_request_args(as_list={
+        'group_by': True,
+        'order_by': True,
+        'datacenter': True,
+        'device_type': True,
+        'device': True
+    })
+    return _list_timeseries(measurement, data, timeseries_formatter)
 
 
 @app.route("/timeseries/<datacenter>/<measurement>", methods=['GET'])
 def list_datacenter_timeseries(datacenter, measurement):
-    data = _get_request_args()
+    data = _get_request_args(as_list={
+        'group_by': True,
+        'order_by': True,
+        'device_type': True,
+        'device': True
+    })
     data.update({
         'datacenter': datacenter
     })
-    return _list_timeseries(measurement, data)
+    return _list_timeseries(
+        measurement, data, timeseries_datacenter_formatter
+    )
 
 
 @app.route(
@@ -439,12 +502,18 @@ def list_datacenter_timeseries(datacenter, measurement):
     methods=['GET']
 )
 def list_device_type_timeseries(datacenter, device_type, measurement):
-    data = _get_request_args()
+    data = _get_request_args(as_list={
+        'group_by': True,
+        'order_by': True,
+        'device': True
+    })
     data.update({
         'datacenter': datacenter,
         'device_type': device_type
     })
-    return _list_timeseries(measurement, data)
+    return _list_timeseries(
+        measurement, data, timeseries_device_type_formatter
+    )
 
 
 @app.route(
@@ -452,67 +521,171 @@ def list_device_type_timeseries(datacenter, device_type, measurement):
     methods=['GET']
 )
 def list_device_timeseries(datacenter, device_type, device, measurement):
-    data = _get_request_args()
+    data = _get_request_args(as_list={
+        'group_by': True,
+        'order_by': True
+    })
     data.update({
         'datacenter': datacenter,
         'device_type': device_type,
         'device': device
     })
-    return _list_timeseries(measurement, data)
+    return _list_timeseries(measurement, data, timeseries_device_formatter)
 
 
 @app.route(
-    "/export/timeseries/<datacenter>/<device_type>/<measurement>",
+    "/export/timeseries/<datacenter>/<device_type>",
     methods=['GET']
 )
-def export_timeseries(datacenter, device_type, measurement):
+def export_timeseries(datacenter, device_type):
+    args = _get_request_args(as_list={
+        'measurement': True,
+        'device': True
+    })
+    measurements = args.get('measurement')
+    devices = args.get('device', [])
     logger.debug(
-        'download timeseries datacenter=%s %s %s',
-        datacenter, device_type, measurement
+        'download timeseries datacenter=%s device_type=%s '
+        'measurements=%s devices=%s',
+        datacenter, device_type, measurements, devices
     )
-    query = (
-        "select value, device from %s where datacenter='%s' "
-        "and device_type='%s' order by time"
-    ) % (
-        measurement, datacenter, device_type
+    timestamp_column = args.get('timestamp_column', 'time')
+    device_column = args.get('device_column')
+    measurement_column = args.get('measurement_column')
+    logger.debug('timestamp_column: %s', timestamp_column)
+    logger.debug('device_column: %s', device_column)
+    logger.debug('measurement_column: %s', measurement_column)
+    assert any([timestamp_column, device_column, measurement_column])
+    assert not all([timestamp_column, device_column, measurement_column])
+    column_name_as_timestamp = bool(
+        args.get('column_name_as_timestamp', False)
     )
-    logger.debug('timeseries %s query: %s', measurement, query)
-    response = []
-    with database.influx_session() as session:
-        result = session.query(query, epoch=settings.DEFAULT_TIME_PRECISION)
-        response = list(result.get_points())
-    logger.debug('influx query response: %s', response)
-    data_by_device = {}
-    devices = set()
-    for item in response:
-        device = item['device']
-        timestamp = item['time']
-        value = item['value']
-        devices.add(device)
-        device_data = data_by_device.setdefault(timestamp, {})
-        device_data[device] = value
-    devices = list(devices)
-    devices = sorted(devices)
-    data_by_timestamp = {}
-    for timestamp, device_data in six.iteritems(data_by_device):
-        timestamp_data = []
-        for device in devices:
-            timestamp_data.append(device_data.get(device, ''))
-        data_by_timestamp[timestamp] = timestamp_data
-    timestamps = data_by_device.keys()
+    column_name_as_measurement = bool(
+        args.get('column_name_as_measurement', False)
+    )
+    column_name_as_device = bool(
+        args.get(
+            'column_name_as_device',
+            not (
+                column_name_as_timestamp or column_name_as_measurement
+            )
+        )
+    )
+    logger.debug('column_name_as_timestamp: %s', column_name_as_timestamp)
+    logger.debug('column_name_as_measurement: %s', column_name_as_measurement)
+    logger.debug('column_name_as_device: %s', column_name_as_device)
+    assert sum([
+        column_name_as_timestamp,
+        column_name_as_device,
+        column_name_as_measurement
+    ]) == 1
+    assert not (column_name_as_timestamp and timestamp_column)
+    assert not (column_name_as_device and device_column)
+    assert not (column_name_as_measurement and measurement_column)
+    got_devices = set()
+    timestamps = set()
+    data = []
+    for measurement in measurements:
+        queries = []
+        if devices:
+            for device in devices:
+                queries.append(
+                    "select value, device from %s where datacenter='%s' "
+                    "and device_type='%s' and device='%s' order by time" % (
+                        measurement, datacenter, device_type, device
+                    )
+                )
+        else:
+            queries.append(
+                "select value, device from %s where datacenter='%s' "
+                "and device_type='%s' order by time" % (
+                    measurement, datacenter, device_type
+                )
+            )
+        logger.debug('timeseries %s queries: %s', measurement, queries)
+        response = []
+        with database.influx_session() as session:
+            for query in queries:
+                result = session.query(
+                    query, epoch=settings.DEFAULT_TIME_PRECISION
+                )
+                response.extend(list(result.get_points()))
+        logger.debug('influx query response: %s', response)
+        for item in response:
+            device = item['device']
+            timestamp = item['time']
+            got_devices.add(device)
+            timestamps.add(timestamp)
+            item['measurement'] = measurement
+            data.append(item)
+    measurements = sorted(measurements)
+    logger.debug('measurements: %s', measurements)
+    if not devices:
+        devices = list(got_devices)
+        devices = sorted(devices)
+    logger.debug('devices: %s', devices)
+    timestamps = list(timestamps)
+    timestamps = sorted(timestamps)
     if settings.DEFAULT_TIME_PRECISION:
         timestamps = sorted(timestamps)
     else:
         timestamps = sorted(
             timestamps, key=lambda timestamp: parser.parse(timestamp)
         )
-    data = []
-    data.append(['time'] + devices)
-    for timestamp in timestamps:
-        data.append([timestamp] + data_by_timestamp[timestamp])
+    logger.debug('timestamps: %s', timestamps)
+    column_names = []
+    row_keys = []
+    column_key = None
+    if timestamp_column:
+        column_names.append(timestamp_column)
+        row_keys.append('time')
+    if measurement_column:
+        column_names.append(measurement_column)
+        row_keys.append('measurement')
+    if device_column:
+        column_names.append(device_column)
+        row_keys.append('device')
+    if column_name_as_timestamp:
+        column_names.extend(timestamps)
+        column_key = 'time'
+    if column_name_as_measurement:
+        column_names.extend(measurements)
+        column_key = 'measurement'
+    if column_name_as_device:
+        column_names.extend(devices)
+        column_key = 'device'
+    logger.debug('column names: %s', column_names)
+    logger.debug('row_keys: %s', row_keys)
+    logger.debug('column_key: %s', column_key)
+    columns = len(column_names)
+    column_index = {}
+    for i, column_name in enumerate(column_names):
+        column_index[column_name] = i
+    logger.debug('column_index: %s', column_index)
+    output = []
+    output.append(column_names)
+    rows = {}
+    for item in data:
+        keys = []
+        key_map = {}
+        for key in row_keys:
+            keys.append(item[key])
+            key_map[key] = item[key]
+        key = '.'.join(keys)
+        _, row = rows.setdefault(key_map, (keys, []))
+        row.append(item)
+    rows = rows.values()
+    rows = sorted(rows)
+    for key_map, row in rows:
+        line = columns * [settings.DEFAULT_INFLUX_VALUE]
+        for key, value in six.iteritems(key_map):
+            line[column_index[key]] = value
+        for item in row:
+            line[column_index[item[column_key]]] = item['value']
+        output.append(line)
     string_buffer = StringIO.StringIO()
     writer = csv.writer(string_buffer)
-    writer.writerows(data)
+    writer.writerows(output)
     return utils.make_csv_response(
         200, string_buffer.getvalue(),
         '%s-%s-%s.csv' % (measurement, datacenter, device_type)
@@ -520,10 +693,10 @@ def export_timeseries(datacenter, device_type, measurement):
 
 
 def _write_points(
-    session, measurement, device_data, tags={}, time_precision=None
+    session, measurement, timeseries, tags={}, time_precision=None
 ):
     points = []
-    for timestamp, value in six.iteritems(device_data):
+    for timestamp, value in six.iteritems(timeseries):
         if time_precision:
             timestamp = long(timestamp)
         points.append({
@@ -541,36 +714,39 @@ def _write_points(
 
 
 def generate_timeseries(data, tags):
-    generated_tags = dict(tags)
     for datacenter, datacenter_data in six.iteritems(data):
         for device_type, device_type_data in six.iteritems(datacenter_data):
-            for device, device_data in six.iteritems(device_type_data):
-                generated_tags.update({
-                    'datacenter': datacenter,
-                    'device_type': device_type,
-                    'device': device
-                })
-                yield device_data, generated_tags
+            for timestamp, timestamp_data in six.iteritems(device_type_data):
+                for device, value in six.iteritems(timestamp_data):
+                    generated_tags = dict(tags)
+                    generated_tags.update({
+                        'datacenter': datacenter,
+                        'device_type': device_type,
+                        'device': device
+                    })
+                    yield [{timestamp: value}], generated_tags
 
 
 def generate_datacenter_timeseries(data, tags):
-    generated_tags = dict(tags)
     for device_type, device_type_data in six.iteritems(data):
-        for device, device_data in six.iteritems(device_type_data):
-            generated_tags.update({
-                'device_type': device_type,
-                'device': device
-            })
-            yield device_data, generated_tags
+        for timestamp, timestamp_data in six.iteritems(device_type_data):
+            for device, value in six.iteritems(timestamp_data):
+                generated_tags = dict(tags)
+                generated_tags.update({
+                    'device_type': device_type,
+                    'device': device
+                })
+                yield [{timestamp: value}], generated_tags
 
 
 def generate_device_type_timeseries(data, tags):
-    generated_tags = dict(tags)
-    for device, device_data in six.iteritems(data):
-        generated_tags.update({
-            'device': device
-        })
-        yield device_data, generated_tags
+    for timestamp, timestamp_data in six.iteritems(data):
+        for device, value in six.iteritems(timestamp_data):
+            generated_tags = dict(tags)
+            generated_tags.update({
+                'device': device
+            })
+            yield [{timestamp: value}], generated_tags
 
 
 def generate_device_timeseries(data, tags):
