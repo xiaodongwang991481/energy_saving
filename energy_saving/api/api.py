@@ -555,6 +555,11 @@ def export_timeseries(datacenter, device_type):
     logger.debug('timestamp_column: %s', timestamp_column)
     logger.debug('device_column: %s', device_column)
     logger.debug('measurement_column: %s', measurement_column)
+    column_name_map = {
+        'time': timestamp_column,
+        'device': device_column,
+        'measurement': measurement_column
+    }
     assert any([timestamp_column, device_column, measurement_column])
     assert not all([timestamp_column, device_column, measurement_column])
     column_name_as_timestamp = bool(
@@ -582,6 +587,10 @@ def export_timeseries(datacenter, device_type):
     assert not (column_name_as_timestamp and timestamp_column)
     assert not (column_name_as_device and device_column)
     assert not (column_name_as_measurement and measurement_column)
+    time_precision = args.get(
+        'time_precision', settings.DEFAULT_TIME_PRECISION
+    )
+    logger.debug('time precision: %s', time_precision)
     got_devices = set()
     timestamps = set()
     data = []
@@ -607,7 +616,7 @@ def export_timeseries(datacenter, device_type):
         with database.influx_session() as session:
             for query in queries:
                 result = session.query(
-                    query, epoch=settings.DEFAULT_TIME_PRECISION
+                    query, epoch=time_precision
                 )
                 response.extend(list(result.get_points()))
         logger.debug('influx query response: %s', response)
@@ -626,7 +635,7 @@ def export_timeseries(datacenter, device_type):
     logger.debug('devices: %s', devices)
     timestamps = list(timestamps)
     timestamps = sorted(timestamps)
-    if settings.DEFAULT_TIME_PRECISION:
+    if time_precision:
         timestamps = sorted(timestamps)
     else:
         timestamps = sorted(
@@ -672,14 +681,14 @@ def export_timeseries(datacenter, device_type):
             keys.append(item[key])
             key_map[key] = item[key]
         key = '.'.join(keys)
-        _, row = rows.setdefault(key_map, (keys, []))
+        _, row = rows.setdefault(key, (key_map, []))
         row.append(item)
     rows = rows.values()
     rows = sorted(rows)
     for key_map, row in rows:
         line = columns * [settings.DEFAULT_INFLUX_VALUE]
         for key, value in six.iteritems(key_map):
-            line[column_index[key]] = value
+            line[column_index[column_name_map[key]]] = value
         for item in row:
             line[column_index[item[column_key]]] = item['value']
         output.append(line)
@@ -724,7 +733,8 @@ def generate_timeseries(data, tags):
                         'device_type': device_type,
                         'device': device
                     })
-                    yield [{timestamp: value}], generated_tags
+                    value = _convert_timeseries_value(value, generated_tags)
+                    yield {timestamp: value}, generated_tags
 
 
 def generate_datacenter_timeseries(data, tags):
@@ -736,7 +746,8 @@ def generate_datacenter_timeseries(data, tags):
                     'device_type': device_type,
                     'device': device
                 })
-                yield [{timestamp: value}], generated_tags
+                value = _convert_timeseries_value(value, generated_tags)
+                yield {timestamp: value}, generated_tags
 
 
 def generate_device_type_timeseries(data, tags):
@@ -746,12 +757,15 @@ def generate_device_type_timeseries(data, tags):
             generated_tags.update({
                 'device': device
             })
-            yield [{timestamp: value}], generated_tags
+            value = _convert_timeseries_value(value, generated_tags)
+            yield {timestamp: value}, generated_tags
 
 
 def generate_device_timeseries(data, tags):
     generated_tags = dict(tags)
-    yield data, generated_tags
+    for timestamp, value in six.iteritems(data):
+        value = _convert_timeseries_value(value, generated_tags)
+        yield {timestamp: value}, generated_tags
 
 
 def _create_timeseries(
@@ -792,38 +806,81 @@ def create_timeseries(measurement):
     )
 
 
-TYPE_CONVERTERS = [(
-    re.compile(r'^true|false|True|False$'), bool
-), (
-    re.compile(r'^[+-]?\d+$'), long
-), (
-    re.compile(r'^[+-]?\d+(.\d+)?([e|E][+-]?\d+)$'), float
-)]
-
-
-def _convert_timeseries_value(value):
-    for pattern, converter in TYPE_CONVERTERS:
-        if pattern.match(value):
-            return converter(value)
-    return value
+def _convert_timeseries_value(value, tags):
+    return float(value)
 
 
 @app.route(
-    "/import/timeseries/<datacenter>/<device_type>/<measurement>",
+    "/import/timeseries/<datacenter>/<device_type>",
     methods=['POST']
 )
-def import_timeseries(datacenter, device_type, measurement):
+def import_timeseries(datacenter, device_type):
+    args = _get_request_args()
     logger.debug(
-        'upload timeseries datacenter=%s %s %s',
-        datacenter, device_type, measurement
+        'upload timeseries datacenter=%s device_type=%s',
+        datacenter, device_type
     )
-    data_by_device = {}
+    timestamp_column = args.get('timestamp_column', 'time')
+    device_column = args.get('device_column')
+    measurement_column = args.get('measurement_column')
+    logger.debug('timestamp_column: %s', timestamp_column)
+    logger.debug('device_column: %s', device_column)
+    logger.debug('measurement_column: %s', measurement_column)
+    column_name_map = {}
+    if timestamp_column:
+        column_name_map[timestamp_column] = 'time'
+    if device_column:
+        column_name_map[device_column] = 'device'
+    if measurement_column:
+        column_name_map[measurement_column] = 'measurement'
+    logger.debug('column_name_map: %s', column_name_map)
+    assert any([timestamp_column, device_column, measurement_column])
+    assert not all([timestamp_column, device_column, measurement_column])
+    column_name_as_timestamp = bool(
+        args.get('column_name_as_timestamp', False)
+    )
+    column_name_as_measurement = bool(
+        args.get('column_name_as_measurement', False)
+    )
+    column_name_as_device = bool(
+        args.get(
+            'column_name_as_device',
+            not (
+                column_name_as_timestamp or column_name_as_measurement
+            )
+        )
+    )
+    logger.debug('column_name_as_timestamp: %s', column_name_as_timestamp)
+    logger.debug('column_name_as_measurement: %s', column_name_as_measurement)
+    logger.debug('column_name_as_device: %s', column_name_as_device)
+    assert sum([
+        column_name_as_timestamp,
+        column_name_as_device,
+        column_name_as_measurement
+    ]) == 1
+    assert not (column_name_as_timestamp and timestamp_column)
+    assert not (column_name_as_device and device_column)
+    assert not (column_name_as_measurement and measurement_column)
+    time_precision = args.get(
+        'time_precisin', settings.DEFAULT_TIME_PRECISION
+    )
+    logger.debug('time precision: %s', time_precision)
+    column_key = None
+    if column_name_as_timestamp:
+        column_key = 'time'
+    if column_name_as_measurement:
+        column_key = 'measurement'
+    if column_name_as_device:
+        column_key = 'device'
+    logger.debug('column_key: %s', column_key)
     request_files = request.files.items(multi=True)
     if not request_files:
             raise exception_handler.NotAcceptable(
                 'no csv file to upload'
             )
     logger.debug('upload csv files: %s', request_files)
+    data = []
+    column_names = set()
     for filename, upload in request_files:
         fields = None
         reader = csv.reader(upload)
@@ -832,42 +889,47 @@ def import_timeseries(datacenter, device_type, measurement):
                 continue
             logger.debug('read row %s', row)
             if not fields:
-                fields = row[1:]
+                fields = row
                 for field in fields:
-                    data_by_device.setdefault(field, {})
+                    if field not in column_name_map:
+                        column_names.add(field)
             else:
-                timestamp = row[0]
-                row = row[1:]
-                data = dict(zip(fields, row))
-                for field, value in six.iteritems(data):
-                    if value:
-                        data_by_device[
-                            field
-                        ][timestamp] = _convert_timeseries_value(
-                            value
-                        )
+                data.append(dict(zip(fields, row)))
     status = True
     with database.influx_session() as session:
-        for device, device_data in six.iteritems(data_by_device):
-            tags = {
-                'datacenter': datacenter,
-                'device_type': device_type,
-                'device':  device
-            }
-            status = all([
-                status,
-                _write_points(
-                    session, measurement, device_data, tags,
-                    settings.DEFAULT_TIME_PRECISION
+        for item in data:
+            extra_tags = {}
+            for key, value in six.iteritems(column_name_map):
+                extra_tags[value] = item.pop(
+                    key, settings.DEFAULT_INFLUX_VALUE
                 )
-            ])
+            for key, value in six.iteritems(item):
+                extra_tags[column_key] = key
+                tags = {
+                    'datacenter': datacenter,
+                    'device_type': device_type
+                }
+                tags.update(extra_tags)
+                measurement = tags.pop('measurement')
+                timestamp = tags.pop('time')
+                if time_precision:
+                    timestamp = long(timestamp)
+                value = _convert_timeseries_value(value, tags)
+                status = all([
+                    status,
+                    _write_points(
+                        session, measurement,
+                        {timestamp: value}, tags,
+                        settings.DEFAULT_TIME_PRECISION
+                    )
+                ])
     if status:
         return utils.make_json_response(
             200, {'status': status}
         )
     else:
         raise exception_handler.NotAcceptable(
-            'timeseries %s csv file does not acceptable' % measurement
+            'timeseries csv file does not acceptable'
         )
 
 
