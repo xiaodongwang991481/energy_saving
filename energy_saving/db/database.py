@@ -234,20 +234,24 @@ def drop_db():
 def _get_attribute_dict(attribute):
     return {
         'devices': [],
-        'type': attribute.type,
-        'unit': attribute.unit,
-        'mean': attribute.mean,
-        'deviation': attribute.deviation
+        'attribute': {
+            'type': attribute.type,
+            'unit': attribute.unit,
+            'mean': attribute.mean,
+            'deviation': attribute.deviation
+        }
     }
 
 
 def _get_parameter_dict(parameter):
     return {
         'devices': [],
-        'type': parameter.type,
-        'unit': parameter.unit,
-        'min': parameter.min,
-        'max': parameter.max
+        'attribute': {
+            'type': parameter.type,
+            'unit': parameter.unit,
+            'min': parameter.min,
+            'max': parameter.max
+        }
     }
 
 
@@ -324,6 +328,10 @@ DEVICE_TYPE_METADATA_GETTERS = {
 
 
 def get_datacenter_device_type_metadata(datacenter, device_type):
+    if device_type not in DEVICE_TYPE_METADATA_GETTERS:
+        raise exception.RecordNotExists(
+            'device type %s does not exist' % device_type
+        )
     return DEVICE_TYPE_METADATA_GETTERS[device_type](datacenter)
 
 
@@ -332,3 +340,15 @@ def get_datacenter_metadata(datacenter):
     for key, value in six.iteritems(DEVICE_TYPE_METADATA_GETTERS):
         result[key] = value(datacenter)
     return result
+
+
+TIMESERIES_VALUE_CONVERTERS = {
+    'binary': bool,
+    'continuous': float,
+    'integer': int,
+    'discrete': str
+}
+
+
+def convert_timeseries_value(value, value_type):
+    return TIMESERIES_VALUE_CONVERTERS[value_type](value)

@@ -224,11 +224,29 @@ def list_database_model_fields(model_name):
     )
 
 
+def _get_device_type_metadata(datacenter_name, device_type):
+    with database.session() as session:
+        datacenter = session.query(
+            models.Datacenter
+        ).filter_by(name=datacenter_name).first()
+        if not datacenter:
+            raise exception_handler.ItemNotFound(
+                'datacener %s does not exist' % datacenter_name
+            )
+        return database.get_datacenter_device_type_metadata(
+            datacenter, device_type
+        )
+
+
 def _get_datacenter_metadata(datacenter_name):
     with database.session() as session:
         datacenter = session.query(
             models.Datacenter
         ).filter_by(name=datacenter_name).first()
+        if not datacenter:
+            raise exception_handler.ItemNotFound(
+                'datacener %s does not exist' % datacenter_name
+            )
         return database.get_datacenter_metadata(datacenter)
 
 
@@ -357,9 +375,9 @@ def _list_timeseries(
             where_clause = ''
         if aggregation:
             value = '%s(value)' % aggregation
-            group_by.extend(extra_select_fields)
+            group_by = group_by + extra_select_fields
         else:
-            value = 'value'
+            value = ', '.join(['value'] + (extra_select_fields or []))
         select = value
         if group_by:
             group_by_clause = ' group by %s' % _get_group_by(group_by)
@@ -370,42 +388,32 @@ def _list_timeseries(
         else:
             order_by_clause = ''
         query = 'select %s from %s%s%s%s' % (
-            select, measurement, where_clause, group_by_clause, order_by_clause
+            select, measurement, where_clause,
+            group_by_clause, order_by_clause
         )
     logger.debug('timeseries %s query: %s', measurement, query)
     response = []
     with database.influx_session() as session:
         result = session.query(query, epoch=time_precision)
-        response = list(result.get_points())
-        if data_formatter:
-            response = data_formatter(response)
+        for key, value in result.items():
+            logger.debug('iterate result %s', key)
+            _, group_tags = key
+            if aggregation:
+                for item in value:
+                    logger.debug('iterate record %s', item)
+                    if group_tags:
+                        item.update(group_tags)
+                    item['value'] = item.pop(aggregation)
+                    response.append(item)
+            else:
+                response.extend(list(value))
     logger.debug('timeseries %s response: %s', measurement, response)
-    return utils.make_json_response(
-        200, response
+    if data_formatter:
+        response = data_formatter(response)
+    logger.debug(
+        'timeseries %s formatted response: %s', measurement, response
     )
-
-
-def timeseries_formatter(data):
-    result = {}
-    for item in data:
-        datacenter_result = result.setdefault(item['datacenter'], {})
-        device_type_result = datacenter_result.setdefault(
-            item['device_type'], {}
-        )
-        timestamp_result = device_type_result.setdefault(item['time'], {})
-        timestamp_result[item['device']] = item['value']
-    return result
-
-
-def timeseries_datacenter_formatter(data):
-    result = {}
-    for item in data:
-        device_type_result = result.setdefault(
-            item['device_type'], {}
-        )
-        timestamp_result = device_type_result.setdefault(item['time'], {})
-        timestamp_result[item['device']] = item['value']
-    return result
+    return response
 
 
 def timeseries_device_type_formatter(data):
@@ -423,35 +431,28 @@ def timeseries_device_formatter(data):
     return result
 
 
-@app.route("/timeseries/<measurement>", methods=['GET'])
-def list_timeseries(measurement):
+@app.route("/timeseries/<datacenter>/<device_type>", methods=['GET'])
+def list_device_type_all_timeseries(datacenter, device_type):
     data = _get_request_args(as_list={
         'group_by': True,
         'order_by': True,
-        'datacenter': True,
-        'device_type': True,
-        'device': True
-    })
-    return _list_timeseries(
-        measurement, data, timeseries_formatter,
-        extra_select_fields=['datacenter', 'device_type', 'device']
-    )
-
-
-@app.route("/timeseries/<datacenter>/<measurement>", methods=['GET'])
-def list_datacenter_timeseries(datacenter, measurement):
-    data = _get_request_args(as_list={
-        'group_by': True,
-        'order_by': True,
-        'device_type': True,
         'device': True
     })
     data.update({
-        'datacenter': datacenter
+        'datacenter': datacenter,
+        'device_type': device_type
     })
-    return _list_timeseries(
-        measurement, data, timeseries_datacenter_formatter,
-        extra_select_fields=['device_type', 'device']
+    device_type_metadata = _get_device_type_metadata(
+        datacenter, device_type
+    )
+    response = {}
+    for measurement, _ in six.iteritems(device_type_metadata):
+        response[measurement] = _list_timeseries(
+            measurement, dict(data), timeseries_device_type_formatter,
+            extra_select_fields=['device']
+        )
+    return utils.make_json_response(
+        200, response
     )
 
 
@@ -469,9 +470,12 @@ def list_device_type_timeseries(datacenter, device_type, measurement):
         'datacenter': datacenter,
         'device_type': device_type
     })
-    return _list_timeseries(
+    response = _list_timeseries(
         measurement, data, timeseries_device_type_formatter,
         extra_select_fields=['device']
+    )
+    return utils.make_json_response(
+        200, response
     )
 
 
@@ -489,7 +493,12 @@ def list_device_timeseries(datacenter, device_type, device, measurement):
         'device_type': device_type,
         'device': device
     })
-    return _list_timeseries(measurement, data, timeseries_device_formatter)
+    response = _list_timeseries(
+        measurement, data, timeseries_device_formatter
+    )
+    return utils.make_json_response(
+        200, response
+    )
 
 
 @app.route(
@@ -501,8 +510,22 @@ def export_timeseries(datacenter, device_type):
         'measurement': True,
         'device': True
     })
+    device_type_metadata = _get_device_type_metadata(
+        datacenter, device_type
+    )
     measurements = args.get('measurement')
-    devices = args.get('device', [])
+    if not measurements:
+        measurements = device_type_metadata.keys()
+    measurements = set(measurements)
+    devices = args.get('device')
+    if not devices:
+        devices = set()
+        for measurement, metadata in six.iteritems(
+            device_type_metadata
+        ):
+            devices.union(metadata['devices'])
+    else:
+        devices = set(devices)
     logger.debug(
         'download timeseries datacenter=%s device_type=%s '
         'measurements=%s devices=%s',
@@ -550,48 +573,33 @@ def export_timeseries(datacenter, device_type):
         'time_precision', settings.DEFAULT_TIME_PRECISION
     )
     logger.debug('time precision: %s', time_precision)
-    got_devices = set()
     timestamps = set()
     data = []
-    for measurement in measurements:
-        queries = []
-        if devices:
-            for device in devices:
-                queries.append(
-                    "select value, device from %s where datacenter='%s' "
-                    "and device_type='%s' and device='%s' order by time" % (
-                        measurement, datacenter, device_type, device
-                    )
-                )
-        else:
-            queries.append(
+    with database.influx_session() as session:
+        for measurement in measurements:
+            query = (
                 "select value, device from %s where datacenter='%s' "
                 "and device_type='%s' order by time" % (
                     measurement, datacenter, device_type
                 )
             )
-        logger.debug('timeseries %s queries: %s', measurement, queries)
-        response = []
-        with database.influx_session() as session:
-            for query in queries:
-                result = session.query(
-                    query, epoch=time_precision
-                )
-                response.extend(list(result.get_points()))
-        logger.debug('influx query response: %s', response)
-        for item in response:
-            device = item['device']
-            timestamp = item['time']
-            got_devices.add(device)
-            timestamps.add(timestamp)
-            item['measurement'] = measurement
-            data.append(item)
+            logger.debug(
+                'timeseries %s query: %s', measurement, query
+            )
+            result = session.query(
+                query, epoch=time_precision
+            )
+            for item in result.get_points():
+                if item['device'] in devices:
+                    timestamp = item['time']
+                    timestamps.add(timestamp)
+                    item['measurement'] = measurement
+                    data.append(item)
+    logger.debug('influx query response: %s', data)
+    measurements = list(measurements)
     measurements = sorted(measurements)
-    logger.debug('measurements: %s', measurements)
-    if not devices:
-        devices = list(got_devices)
-        devices = sorted(devices)
-    logger.debug('devices: %s', devices)
+    devices = list(devices)
+    devices = sorted(devices)
     timestamps = list(timestamps)
     timestamps = sorted(timestamps)
     if time_precision:
@@ -656,7 +664,7 @@ def export_timeseries(datacenter, device_type):
     writer.writerows(output)
     return utils.make_csv_response(
         200, string_buffer.getvalue(),
-        '%s-%s-%s.csv' % (measurement, datacenter, device_type)
+        '%s-%s.csv' % (datacenter, device_type)
     )
 
 
@@ -681,92 +689,58 @@ def _write_points(
     )
 
 
-def generate_timeseries(data, tags):
-    for datacenter, datacenter_data in six.iteritems(data):
-        for device_type, device_type_data in six.iteritems(datacenter_data):
-            for timestamp, timestamp_data in six.iteritems(device_type_data):
-                for device, value in six.iteritems(timestamp_data):
-                    generated_tags = dict(tags)
-                    generated_tags.update({
-                        'datacenter': datacenter,
-                        'device_type': device_type,
-                        'device': device
-                    })
-                    value = _convert_timeseries_value(value, generated_tags)
-                    yield {timestamp: value}, generated_tags
-
-
-def generate_datacenter_timeseries(data, tags):
-    for device_type, device_type_data in six.iteritems(data):
-        for timestamp, timestamp_data in six.iteritems(device_type_data):
-            for device, value in six.iteritems(timestamp_data):
-                generated_tags = dict(tags)
-                generated_tags.update({
-                    'device_type': device_type,
-                    'device': device
-                })
-                value = _convert_timeseries_value(value, generated_tags)
-                yield {timestamp: value}, generated_tags
-
-
-def generate_device_type_timeseries(data, tags):
+def generate_device_type_timeseries(data, tags, measurement_metadata):
     for timestamp, timestamp_data in six.iteritems(data):
         for device, value in six.iteritems(timestamp_data):
             generated_tags = dict(tags)
             generated_tags.update({
                 'device': device
             })
-            value = _convert_timeseries_value(value, generated_tags)
+            value = _convert_timeseries_value(
+                value, measurement_metadata['attribute']['type']
+            )
             yield {timestamp: value}, generated_tags
 
 
-def generate_device_timeseries(data, tags):
+def generate_device_timeseries(data, tags, measurement_metadata):
     generated_tags = dict(tags)
     for timestamp, value in six.iteritems(data):
-        value = _convert_timeseries_value(value, generated_tags)
+        value = _convert_timeseries_value(
+            value, measurement_metadata['attribute']['type']
+        )
         yield {timestamp: value}, generated_tags
 
 
 def _create_timeseries(
-    measurement, data,
+    measurement, data, measurement_metadata,
     timeseries_generator, tags={}, time_precision=None
 ):
     status = True
+    outputs = []
+    for device_data, generated_tags in timeseries_generator(
+        data, tags, measurement_metadata
+    ):
+        outputs.append((measurement, device_data, generated_tags))
     with database.influx_session() as session:
-        for device_data, generated_tags in timeseries_generator(data, tags):
-            status = all([
-                status,
-                _write_points(
-                    session, measurement, device_data,
-                    generated_tags, time_precision
-                )
-            ])
-    logger.debug('timeseries %s status: %s', measurement, status)
-    if status:
-        return utils.make_json_response(
-            200, {'status': status}
-        )
-    else:
-        raise exception_handler.NotAcceptable(
-            'timeseries %s data not acceptable' % measurement
+        for measurement, device_data, generated_tags in outputs:
+            status &= _write_points(
+                session, measurement, device_data,
+                generated_tags, time_precision
+            )
+    logger.debug(
+        'create timeseries %s %s status: %s',
+        measurement, data, status
+    )
+    if not status:
+        raise exception_handler.NotAccept(
+            'measurement %s with data %s is not acceptable' % (
+                measurement, data
+            )
         )
 
 
-@app.route("/timeseries/<measurement>", methods=['POST'])
-def create_timeseries(measurement):
-    data = _get_request_data()
-    logger.debug('timeseries data for %s: %s', measurement, data)
-    time_precision = data.pop(
-        'time_precision', settings.DEFAULT_TIME_PRECISION
-    )
-    tags = data.pop('tags', {})
-    return _create_timeseries(
-        measurement, data, generate_timeseries, tags, time_precision
-    )
-
-
-def _convert_timeseries_value(value, tags):
-    return float(value)
+def _convert_timeseries_value(value, value_type):
+    return database.convert_timeseries_value(value, value_type)
 
 
 @app.route(
@@ -824,6 +798,9 @@ def import_timeseries(datacenter, device_type):
         'time_precisin', settings.DEFAULT_TIME_PRECISION
     )
     logger.debug('time precision: %s', time_precision)
+    device_type_metadata = _get_device_type_metadata(
+        datacenter, device_type
+    )
     column_key = None
     if column_name_as_timestamp:
         column_key = 'time'
@@ -832,6 +809,7 @@ def import_timeseries(datacenter, device_type):
     if column_name_as_device:
         column_key = 'device'
     logger.debug('column_key: %s', column_key)
+    device_type_metadata = _get_device_type_metadata(datacenter, device_type)
     request_files = request.files.items(multi=True)
     if not request_files:
             raise exception_handler.NotAcceptable(
@@ -854,56 +832,93 @@ def import_timeseries(datacenter, device_type):
                         column_names.add(field)
             else:
                 data.append(dict(zip(fields, row)))
+    outputs = []
+    for item in data:
+        extra_tags = {}
+        for key, value in six.iteritems(column_name_map):
+            extra_tags[value] = item.pop(
+                key, settings.DEFAULT_INFLUX_VALUE
+            )
+        for key, value in six.iteritems(item):
+            extra_tags[column_key] = key
+            tags = {
+                'datacenter': datacenter,
+                'device_type': device_type
+            }
+            tags.update(extra_tags)
+            measurement = tags.pop('measurement')
+            timestamp = tags.pop('time')
+            if measurement not in device_type_metadata:
+                raise exception_handler.ItemNotFound(
+                    'measurement %s does not found '
+                    'in datacenter %s device type %s' % (
+                        measurement, datacenter, device_type
+                    )
+                )
+            measurement_metadata = device_type_metadata[measurement]
+            if 'device' in tags:
+                device = tags['device']
+                if device not in measurement_metadata['devices']:
+                    raise exception_handler.ItemNotFound(
+                        'device %s does not found '
+                        'in datacenter %s device type %s measurement %s' % (
+                            device, datacenter, device_type, measurement
+                        )
+                    )
+            if time_precision:
+                timestamp = long(timestamp)
+            value = _convert_timeseries_value(
+                value, measurement_metadata['attribute']['type']
+            )
+            outputs.append((measurement, {timestamp: value}, tags))
     status = True
     with database.influx_session() as session:
-        for item in data:
-            extra_tags = {}
-            for key, value in six.iteritems(column_name_map):
-                extra_tags[value] = item.pop(
-                    key, settings.DEFAULT_INFLUX_VALUE
-                )
-            for key, value in six.iteritems(item):
-                extra_tags[column_key] = key
-                tags = {
-                    'datacenter': datacenter,
-                    'device_type': device_type
-                }
-                tags.update(extra_tags)
-                measurement = tags.pop('measurement')
-                timestamp = tags.pop('time')
-                if time_precision:
-                    timestamp = long(timestamp)
-                value = _convert_timeseries_value(value, tags)
-                status = all([
-                    status,
-                    _write_points(
-                        session, measurement,
-                        {timestamp: value}, tags,
-                        settings.DEFAULT_TIME_PRECISION
-                    )
-                ])
-    if status:
-        return utils.make_json_response(
-            200, {'status': status}
+        for measurement, timeseries_data, tags in outputs:
+            status &= _write_points(
+                session, measurement,
+                timeseries_data, tags,
+                time_precision
+            )
+    if not status:
+        raise exception_handler.NotAccept(
+            'data import for datacenter %s device type %s '
+            'is not acceptable' % (
+                datacenter, device_type
+            )
         )
-    else:
-        raise exception_handler.NotAcceptable(
-            'timeseries csv file does not acceptable'
-        )
+    return utils.make_json_response(
+        200, {'status': True}
+    )
 
 
-@app.route("/timeseries/<datacenter>/<measurement>", methods=['POST'])
-def create_datacenter_timeseries(datacenter, measurement):
+@app.route("/timeseries/<datacenter>/<device_type>", methods=['POST'])
+def create_device_type_all_timeseries(datacenter, device_type):
     data = _get_request_data()
-    logger.debug('timeseries data for %s: %s', measurement, data)
+    logger.debug(
+        'timeseries data for %s %s: %s',
+        datacenter, device_type, data
+    )
     time_precision = data.pop(
         'time_precision', settings.DEFAULT_TIME_PRECISION
     )
     tags = data.pop('tags', {})
-    tags.update({'datacenter': datacenter})
-    return _create_timeseries(
-        measurement, data, generate_datacenter_timeseries,
-        tags, time_precision
+    tags.update({
+        'datacenter': datacenter,
+        'device_type': device_type
+    })
+    device_type_metadata = _get_device_type_metadata(
+        datacenter, device_type
+    )
+    for measurement, measurement_metadata in six.iteritems(
+        device_type_metadata
+    ):
+        _create_timeseries(
+            measurement, data, measurement_metadata,
+            generate_device_type_timeseries,
+            tags, time_precision
+        )
+    return utils.make_json_response(
+        200, {'status': True}
     )
 
 
@@ -913,7 +928,10 @@ def create_datacenter_timeseries(datacenter, measurement):
 )
 def create_device_type_timeseries(datacenter, device_type, measurement):
     data = _get_request_data()
-    logger.debug('timeseries data for %s: %s', measurement, data)
+    logger.debug(
+        'timeseries data for %s %s %s: %s',
+        datacenter, device_type, measurement, data
+    )
     time_precision = data.pop(
         'time_precision', settings.DEFAULT_TIME_PRECISION
     )
@@ -922,9 +940,24 @@ def create_device_type_timeseries(datacenter, device_type, measurement):
         'datacenter': datacenter,
         'device_type': device_type
     })
-    return _create_timeseries(
-        measurement, data, generate_device_type_timeseries,
+    device_type_metadata = _get_device_type_metadata(
+        datacenter, device_type
+    )
+    if measurement not in device_type_metadata:
+        raise exception_handler.ItemNotFound(
+            'measurement %s does not found '
+            'in datacenter %s device type %s' % (
+                measurement, datacenter, device_type
+            )
+        )
+    measurement_metadata = device_type_metadata[measurement]
+    _create_timeseries(
+        measurement, data, measurement_metadata,
+        generate_device_type_timeseries,
         tags, time_precision
+    )
+    return utils.make_json_response(
+        200, {'status': True}
     )
 
 
@@ -934,7 +967,10 @@ def create_device_type_timeseries(datacenter, device_type, measurement):
 )
 def create_device_timeseries(datacenter, device_type, device, measurement):
     data = _get_request_data()
-    logger.debug('timeseries data for %s: %s', measurement, data)
+    logger.debug(
+        'timeseries data for %s %s %s %s: %s',
+        datacenter, device_type, device, measurement, data
+    )
     time_precision = data.pop(
         'time_precision', settings.DEFAULT_TIME_PRECISION
     )
@@ -944,8 +980,30 @@ def create_device_timeseries(datacenter, device_type, device, measurement):
         'device_type': device_type,
         'device': device
     })
-    return _create_timeseries(
-        measurement, data, generate_device_timeseries, tags, time_precision
+    device_type_metadata = _get_device_type_metadata(
+        datacenter, device_type
+    )
+    if measurement not in device_type_metadata:
+        raise exception_handler.ItemNotFound(
+            'measurement %s does not found '
+            'in datacenter %s device type %s' % (
+                measurement, datacenter, device_type
+            )
+        )
+    measurement_metadata = device_type_metadata[measurement]
+    if device not in measurement_metadata['devices']:
+        raise exception_handler.ItemNotFound(
+            'device %s does not found '
+            'in datacenter %s device type %s measurement %s' % (
+                device, datacenter, device_type, measurement
+            )
+        )
+    _create_timeseries(
+        measurement, data, measurement_metadata,
+        generate_device_timeseries, tags, time_precision
+    )
+    return utils.make_json_response(
+        200, {'status': True}
     )
 
 
@@ -953,22 +1011,29 @@ def _delete_timeseries(measurement, tags):
     logger.debug('timeseries data for %s: %s', measurement, tags)
     with database.influx_session() as session:
         session.delete_series(measurement=measurement, tags=tags)
+    return True
+
+
+@app.route(
+    "/timeseries/<datacenter>/<device_type>",
+    methods=['DELETE']
+)
+def delete_device_type_all_timeseries(
+        datacenter, device_type
+):
+    data = _get_request_data()
+    data.update({
+        'datacenter': datacenter,
+        'device_type': device_type
+    })
+    device_type_metadata = _get_device_type_metadata(
+        datacenter, device_type
+    )
+    for measurement, _ in six.iteritems(device_type_metadata):
+        _delete_timeseries(measurement, data)
     return utils.make_json_response(
         200, {'status': True}
     )
-
-
-@app.route("/timeseries/<measurement>", methods=['DELETE'])
-def delete_timeseries(measurement):
-    data = _get_request_data()
-    return _delete_timeseries(measurement, data)
-
-
-@app.route("/timeseries/<datacenter>/<measurement>", methods=['DELETE'])
-def delete_datacenter_timeseries(datacenter, measurement):
-    data = _get_request_data()
-    data.update({'datacenter': datacenter})
-    return _delete_timeseries(measurement, data)
 
 
 @app.route(
@@ -981,7 +1046,20 @@ def delete_device_type_timeseries(datacenter, device_type, measurement):
         'datacenter': datacenter,
         'device_type': device_type
     })
-    return _delete_timeseries(measurement, data)
+    device_type_metadata = _get_device_type_metadata(
+        datacenter, device_type
+    )
+    if measurement not in device_type_metadata:
+        raise exception_handler.ItemNotFound(
+            'measurement %s does not found '
+            'in datacenter %s device type %s' % (
+                measurement, datacenter, device_type
+            )
+        )
+    _delete_timeseries(measurement, data)
+    return utils.make_json_response(
+        200, {'status': True}
+    )
 
 
 @app.route(
@@ -995,7 +1073,28 @@ def delete_device_timeseries(datacenter, device_type, device, measurement):
         'device_type': device_type,
         'device': device
     })
-    return _delete_timeseries(measurement, data)
+    device_type_metadata = _get_device_type_metadata(
+        datacenter, device_type
+    )
+    if measurement not in device_type_metadata:
+        raise exception_handler.ItemNotFound(
+            'measurement %s does not found '
+            'in datacenter %s device type %s' % (
+                measurement, datacenter, device_type
+            )
+        )
+    measurement_metadata = device_type_metadata[measurement]
+    if device not in measurement_metadata['devices']:
+        raise exception_handler.ItemNotFound(
+            'device %s does not found '
+            'in datacenter %s device type %s measurement %s' % (
+                device, datacenter, device_type, measurement
+            )
+        )
+    _delete_timeseries(measurement, data)
+    return utils.make_json_response(
+        200, {'status': True}
+    )
 
 
 @app.route("/", methods=['GET'])
