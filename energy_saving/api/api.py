@@ -2,7 +2,6 @@
 import csv
 from dateutil import parser
 import logging
-import re
 import simplejson as json
 import six
 import StringIO
@@ -16,6 +15,7 @@ from energy_saving.api import app
 from energy_saving.api import exception_handler
 from energy_saving.api import utils
 from energy_saving.db import database
+from energy_saving.db import models
 from energy_saving.tasks import client as celery_client
 from energy_saving.utils import logsetting
 from energy_saving.utils import settings
@@ -224,90 +224,30 @@ def list_database_model_fields(model_name):
     )
 
 
-@app.route("/metadata/timeseries/models", methods=['GET'])
-def list_timeseries_models():
-    models = {}
+def _get_datacenter_metadata(datacenter_name):
+    with database.session() as session:
+        datacenter = session.query(
+            models.Datacenter
+        ).filter_by(name=datacenter_name).first()
+        return database.get_datacenter_metadata(datacenter)
+
+
+def _get_metadata():
+    result = {}
     with database.session() as session:
         datacenters = session.query(models.Datacenter)
         for datacenter in datacenters:
-            models[datacenter.name] = {
-                'sensor_attribute': {},
-                'controller_attribute': {},
-                'controller_parameter': {},
-                'power_supply_attribute': {},
-                'controller_power_supply_attribute': {},
-                'environment_sensor_attribute': {}
-            }
-            attributes = models[datacenter.name]['sensor_attribute']
-            for attribute in datacenter.sensor_attibutes:
-                attributes[attribute.name] = []
-                attribute_data = attributes[
-                    attribute.name
-                ]
-                for data in attribute.attribute_data:
-                    attribute_data.append(data.sensor_name)
-            attributes = models[datacenter.name][
-                'environment_sensor_attribute'
-            ]
-            for attribute in (
-                datacenter.environment_sensor_attributes
-            ):
-                attributes[attribute.name] = []
-                attribute_data = attributes[
-                    attribute.name
-                ]
-                for data in attribute.attribute_data:
-                    attribute_data.append(data.environment_sensor_name)
-            attributes = models[datacenter.name][
-                'controller_attribute'
-            ]
-            for attribute in (
-                datacenter.controller_attributes
-            ):
-                attributes[attribute.name] = []
-                attribute_data = attributes[
-                    attribute.name
-                ]
-                for data in attribute.attribute_data:
-                    attribute_data.append(data.controller_name)
-            attributes = models[datacenter.name][
-                'controller_parameter'
-            ]
-            for attribute in (
-                datacenter.controller_parameters
-            ):
-                attributes[attribute.name] = []
-                attribute_data = attributes[
-                    attribute.name
-                ]
-                for data in attribute.parameter_data:
-                    attribute_data.append(data.controller_name)
-            attributes = models[datacenter.name][
-                'power_supply_attribute'
-            ]
-            for attribute in (
-                datacenter.power_supply_attributes
-            ):
-                attributes[attribute.name] = []
-                attribute_data = attributes[
-                    attribute.name
-                ]
-                for data in attribute.parameter_data:
-                    attribute_data.append(data.power_supply_name)
-            attributes = models[datacenter.name][
-                'controller_power_supply_attribute'
-            ]
-            for attribute in (
-                datacenter.controller_power_supply_attributes
-            ):
-                attributes[attribute.name] = []
-                attribute_data = attributes[
-                    attribute.name
-                ]
-                for data in attribute.parameter_data:
-                    attribute_data.append(data.controller_power_supply_name)
+            result[datacenter.name] = (
+                database.get_datacenter_metadata(datacenter)
+            )
+    return result
+
+
+@app.route("/metadata/timeseries/models", methods=['GET'])
+def list_timeseries_models():
+    result = _get_metadata()
     return utils.make_json_response(
-        200, models
+        200, result
     )
 
 
@@ -336,7 +276,12 @@ def upload_model(model_name):
             if not fields:
                 fields = row
             else:
-                data.append(dict(zip(fields, row)))
+                row = dict(zip(fields, row))
+                row_data = {}
+                for key, value in six.iteritems(row):
+                    if value:
+                        row_data[key] = value
+                data.append(row_data)
     with database.session() as session:
         session.bulk_insert_mappings(model, data, True)
     return utils.make_json_response(
@@ -390,13 +335,16 @@ def _get_order_by(order_by):
         return order_by
 
 
-def _list_timeseries(measurement, data, data_formatter=None):
+def _list_timeseries(
+    measurement, data, data_formatter=None, extra_select_fields=None
+):
     logger.debug('timeseries data: %s', data)
     response = {}
     query = data.pop('query', None)
     where = data.pop('where', None)
-    group_by = data.pop('group_by', None)
-    order_by = data.pop('order_by', None)
+    group_by = data.pop('group_by', [])
+    order_by = data.pop('order_by', [])
+    aggregation = data.pop('aggregation', None)
     time_precision = data.pop(
         'time_precision', settings.DEFAULT_TIME_PRECISION
     )
@@ -407,6 +355,12 @@ def _list_timeseries(measurement, data, data_formatter=None):
             where_clause = ' where %s' % where
         else:
             where_clause = ''
+        if aggregation:
+            value = '%s(value)' % aggregation
+            group_by.extend(extra_select_fields)
+        else:
+            value = 'value'
+        select = value
         if group_by:
             group_by_clause = ' group by %s' % _get_group_by(group_by)
         else:
@@ -415,8 +369,8 @@ def _list_timeseries(measurement, data, data_formatter=None):
             order_by_clause = 'order by %s' % _get_order_by(order_by)
         else:
             order_by_clause = ''
-        query = 'select * from %s%s%s%s' % (
-            measurement, where_clause, group_by_clause, order_by_clause
+        query = 'select %s from %s%s%s%s' % (
+            select, measurement, where_clause, group_by_clause, order_by_clause
         )
     logger.debug('timeseries %s query: %s', measurement, query)
     response = []
@@ -478,7 +432,10 @@ def list_timeseries(measurement):
         'device_type': True,
         'device': True
     })
-    return _list_timeseries(measurement, data, timeseries_formatter)
+    return _list_timeseries(
+        measurement, data, timeseries_formatter,
+        extra_select_fields=['datacenter', 'device_type', 'device']
+    )
 
 
 @app.route("/timeseries/<datacenter>/<measurement>", methods=['GET'])
@@ -493,7 +450,8 @@ def list_datacenter_timeseries(datacenter, measurement):
         'datacenter': datacenter
     })
     return _list_timeseries(
-        measurement, data, timeseries_datacenter_formatter
+        measurement, data, timeseries_datacenter_formatter,
+        extra_select_fields=['device_type', 'device']
     )
 
 
@@ -512,7 +470,8 @@ def list_device_type_timeseries(datacenter, device_type, measurement):
         'device_type': device_type
     })
     return _list_timeseries(
-        measurement, data, timeseries_device_type_formatter
+        measurement, data, timeseries_device_type_formatter,
+        extra_select_fields=['device']
     )
 
 
@@ -1044,6 +1003,17 @@ def index():
     return utils.make_template_response(200, {}, 'index.html')
 
 
+def _create_prediction(datacenter_name):
+    with database.session() as session:
+        datacenter = session.query(
+            models.Datacenter
+        ).filter_by(name=datacenter_name).first()
+        prediction = models.Prediction()
+        datacenter.predictions.append(prediction)
+        session.flush()
+        return prediction.name
+
+
 @app.route("/models/<datacenter>/<model_type>/build", methods=['POST'])
 def build_model(datacenter, model_type):
     try:
@@ -1100,10 +1070,15 @@ def test_model(datacenter, model_type):
 
 @app.route("/models/<datacenter>/<model_type>/apply", methods=['POST'])
 def apply_model(datacenter, model_type):
+    prediction = _create_prediction(datacenter)
+    logger.debug(
+        'datacenter %s model %s prediction %s',
+        datacenter, model_type, prediction
+    )
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.apply_model', (
-                datacenter, model_type
+                datacenter, model_type, prediction
             )
         )
     except Exception as error:
@@ -1112,7 +1087,7 @@ def apply_model(datacenter, model_type):
             'failed to send apply_model to celery'
         )
     return utils.make_json_response(
-        200, {}
+        200, {'prediction': prediction}
     )
 
 

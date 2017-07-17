@@ -1,6 +1,7 @@
 """Provider interface to manipulate database."""
 import logging
 from oslo_config import cfg
+import six
 
 from contextlib import contextmanager
 from influxdb import InfluxDBClient
@@ -228,3 +229,106 @@ def create_db():
 def drop_db():
     """Drop database."""
     models.BASE.metadata.drop_all(bind=ENGINE)
+
+
+def _get_attribute_dict(attribute):
+    return {
+        'devices': [],
+        'type': attribute.type,
+        'unit': attribute.unit,
+        'mean': attribute.mean,
+        'deviation': attribute.deviation
+    }
+
+
+def _get_parameter_dict(parameter):
+    return {
+        'devices': [],
+        'type': parameter.type,
+        'unit': parameter.unit,
+        'min': parameter.min,
+        'max': parameter.max
+    }
+
+
+def get_sensor_attributes(datacenter):
+    result = {}
+    for attribute in datacenter.sensor_attributes:
+        result[attribute.name] = _get_attribute_dict(attribute)
+        attribute_data = result[attribute.name]['devices']
+        for data in attribute.attribute_data:
+            attribute_data.append(data.sensor_name)
+    return result
+
+
+def get_controller_attributes(datacenter):
+    result = {}
+    for attribute in datacenter.controller_attributes:
+        result[attribute.name] = _get_attribute_dict(attribute)
+        attribute_data = result[attribute.name]['devices']
+        for data in attribute.attribute_data:
+            attribute_data.append(data.controller_name)
+    return result
+
+
+def get_power_supply_attributes(datacenter):
+    result = {}
+    for attribute in datacenter.power_supply_attributes:
+        result[attribute.name] = _get_attribute_dict(attribute)
+        attribute_data = result[attribute.name]['devices']
+        for data in attribute.attribute_data:
+            attribute_data.append(data.power_supply_name)
+    return result
+
+
+def get_controller_power_supply_attributes(datacenter):
+    result = {}
+    for attribute in datacenter.controller_power_supply_attributes:
+        result[attribute.name] = _get_attribute_dict(attribute)
+        attribute_data = result[attribute.name]['devices']
+        for data in attribute.attribute_data:
+            attribute_data.append(data.controller_power_supply_name)
+    return result
+
+
+def get_environment_sensor_attributes(datacenter):
+    result = {}
+    for attribute in datacenter.environment_sensor_attributes:
+        result[attribute.name] = _get_attribute_dict(attribute)
+        attribute_data = result[attribute.name]['devices']
+        for data in attribute.attribute_data:
+            attribute_data.append(data.environment_sensor_name)
+    return result
+
+
+def get_controller_parameters(datacenter):
+    result = {}
+    for parameter in datacenter.controller_parameters:
+        result[parameter.name] = _get_parameter_dict(parameter)
+        parameter_data = result[parameter.name]['devices']
+        for data in parameter.parameter_data:
+            parameter_data.append(data.controller_name)
+    return result
+
+
+DEVICE_TYPE_METADATA_GETTERS = {
+    'sensor_attribute': get_sensor_attributes,
+    'controller_attribute': get_controller_attributes,
+    'controller_parameter': get_controller_parameters,
+    'power_supply_attribute': get_power_supply_attributes,
+    'controller_power_supply_attribute': (
+        get_controller_power_supply_attributes
+    ),
+    'environment_sensor_attribute': get_environment_sensor_attributes
+}
+
+
+def get_datacenter_device_type_metadata(datacenter, device_type):
+    return DEVICE_TYPE_METADATA_GETTERS[device_type](datacenter)
+
+
+def get_datacenter_metadata(datacenter):
+    result = {}
+    for key, value in six.iteritems(DEVICE_TYPE_METADATA_GETTERS):
+        result[key] = value(datacenter)
+    return result

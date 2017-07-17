@@ -57,10 +57,16 @@ def train_model(datacenter, model_type):
 @celery.task(name='energy_saving.tasks.test_model')
 def test_model(datacenter, model_type):
     """test machine learning model for datacenter."""
-    logger.debug('test model %s for %s', model_type, datacenter)
+    logger.debug(
+        'test model %s for %s',
+        model_type, datacenter
+    )
 
 
 @celery.task(name='energy_saving.tasks.apply_model')
-def apply_model(datacenter, model_type):
+def apply_model(datacenter, model_type, prediction):
     """apply machine learning model for datacenter."""
-    logger.debug('apply model %s for %s', model_type, datacenter)
+    logger.debug(
+        'apply model %s for %s',
+        model_type, datacenter, prediction
+    )

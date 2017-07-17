@@ -56,18 +56,13 @@ class BaseModelView(ModelView):
     model_form_converter = ForeignKeyModelConverter
 
     def __init__(self, model, session, *args, **kwargs):
-        self.column_list = [
-            column.name for column in model.__table__.columns
-        ]
+        self.column_list = model.__table__.columns.keys()
         self.column_labels = {
-            column.name: column.name for column in model.__table__.columns
+            name: column.name
+            for name, column in six.iteritems(dict(model.__table__.columns))
         }
-        self.form_columns = [
-            column.name for column in model.__table__.columns
-        ]
-        self.column_export_list = [
-            column.name for column in model.__table__.columns
-        ]
+        self.form_columns = model.__table__.columns.keys()
+        self.column_export_list = model.__table__.columns.keys()
         super(BaseModelView, self).__init__(model, session, *args, **kwargs)
 
 
