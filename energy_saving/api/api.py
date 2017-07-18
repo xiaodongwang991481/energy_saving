@@ -770,9 +770,18 @@ def import_timeseries(datacenter, device_type):
         'upload timeseries datacenter=%s device_type=%s',
         datacenter, device_type
     )
-    timestamp_column = args.get('timestamp_column', 'time')
-    device_column = args.get('device_column')
-    measurement_column = args.get('measurement_column')
+    default_measurement = args.get('measurement')
+    default_device = args.get('device')
+    default_timestamp = args.get('timestamp')
+    timestamp_column = args.get(
+        'timestamp_column', settings.DEFAULT_EXPORT_TIMESTAMP_COLUMN
+    )
+    device_column = args.get(
+        'device_column', settings.DEFAULT_EXPORT_DEVICE_COLUMN
+    )
+    measurement_column = args.get(
+        'measurement_column', settings.DEFAULT_EXPORT_MEASUREMENT_COLUMN
+    )
     logger.debug('timestamp_column: %s', timestamp_column)
     logger.debug('device_column: %s', device_column)
     logger.debug('measurement_column: %s', measurement_column)
@@ -787,17 +796,23 @@ def import_timeseries(datacenter, device_type):
     assert any([timestamp_column, device_column, measurement_column])
     assert not all([timestamp_column, device_column, measurement_column])
     column_name_as_timestamp = bool(
-        args.get('column_name_as_timestamp', False)
+        args.get(
+            'column_name_as_timestamp',
+            settings.DEFAULT_EXPORT_TIMESTAMP_AS_COLUMN
+        )
     )
     column_name_as_measurement = bool(
-        args.get('column_name_as_measurement', False)
+        args.get(
+            'column_name_as_measurement',
+            settings.DEFAULT_EXPORT_MEASUREMENT_AS_COLUMN
+        ) and not column_name_as_timestamp
     )
     column_name_as_device = bool(
         args.get(
             'column_name_as_device',
-            not (
-                column_name_as_timestamp or column_name_as_measurement
-            )
+            settings.DEFAULT_EXPORT_DEVICE_AS_COLUMN
+        ) and not (
+            column_name_as_timestamp or column_name_as_measurement
         )
     )
     logger.debug('column_name_as_timestamp: %s', column_name_as_timestamp)
@@ -808,11 +823,20 @@ def import_timeseries(datacenter, device_type):
         column_name_as_device,
         column_name_as_measurement
     ]) == 1
-    assert not (column_name_as_timestamp and timestamp_column)
-    assert not (column_name_as_device and device_column)
-    assert not (column_name_as_measurement and measurement_column)
+    assert not all([column_name_as_timestamp, timestamp_column])
+    assert not all([column_name_as_device, device_column])
+    assert not all([column_name_as_measurement, measurement_column])
+    assert any([
+        column_name_as_timestamp, timestamp_column, default_timestamp
+    ])
+    assert any([
+        column_name_as_device, device_column, default_device
+    ])
+    assert any([
+        column_name_as_measurement, measurement_column, default_measurement
+    ])
     time_precision = args.get(
-        'time_precisin', settings.DEFAULT_TIME_PRECISION
+        'time_precision', settings.DEFAULT_TIME_PRECISION
     )
     logger.debug('time precision: %s', time_precision)
     device_type_metadata = _get_device_type_metadata(
@@ -863,8 +887,10 @@ def import_timeseries(datacenter, device_type):
                 'device_type': device_type
             }
             tags.update(extra_tags)
-            measurement = tags.pop('measurement')
-            timestamp = tags.pop('time')
+            measurement = tags.pop('measurement', default_measurement)
+            timestamp = tags.pop('time', default_timestamp)
+            device = tags.pop('device', default_device)
+            tags['device'] = device
             if measurement not in device_type_metadata:
                 raise exception_handler.ItemNotFound(
                     'measurement %s does not found '
@@ -873,15 +899,13 @@ def import_timeseries(datacenter, device_type):
                     )
                 )
             measurement_metadata = device_type_metadata[measurement]
-            if 'device' in tags:
-                device = tags['device']
-                if device not in measurement_metadata['devices']:
-                    raise exception_handler.ItemNotFound(
-                        'device %s does not found '
-                        'in datacenter %s device type %s measurement %s' % (
-                            device, datacenter, device_type, measurement
-                        )
+            if device not in measurement_metadata['devices']:
+                raise exception_handler.ItemNotFound(
+                    'device %s does not found '
+                    'in datacenter %s device type %s measurement %s' % (
+                        device, datacenter, device_type, measurement
                     )
+                )
             if time_precision:
                 timestamp = long(timestamp)
             value = _convert_timeseries_value(
