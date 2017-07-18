@@ -233,9 +233,14 @@ def _get_device_type_metadata(datacenter_name, device_type):
             raise exception_handler.ItemNotFound(
                 'datacener %s does not exist' % datacenter_name
             )
-        return database.get_datacenter_device_type_metadata(
+        device_type_metadata = database.get_datacenter_device_type_metadata(
             datacenter, device_type
         )
+        logger.debug(
+            'datacenter %s device type %s metadata: %s',
+            datacenter_name, device_type, device_type_metadata
+        )
+        return device_type_metadata
 
 
 def _get_datacenter_metadata(datacenter_name):
@@ -523,7 +528,7 @@ def export_timeseries(datacenter, device_type):
         for measurement, metadata in six.iteritems(
             device_type_metadata
         ):
-            devices.union(metadata['devices'])
+            devices = devices.union(metadata['devices'])
     else:
         devices = set(devices)
     logger.debug(
@@ -531,9 +536,15 @@ def export_timeseries(datacenter, device_type):
         'measurements=%s devices=%s',
         datacenter, device_type, measurements, devices
     )
-    timestamp_column = args.get('timestamp_column', 'time')
-    device_column = args.get('device_column')
-    measurement_column = args.get('measurement_column')
+    timestamp_column = args.get(
+        'timestamp_column', settings.DEFAULT_EXPORT_TIMESTAMP_COLUMN
+    )
+    device_column = args.get(
+        'device_column', settings.DEFAULT_EXPORT_DEVICE_COLUMN
+    )
+    measurement_column = args.get(
+        'measurement_column', settings.DEFAULT_EXPORT_MEASUREMENT_COLUMN
+    )
     logger.debug('timestamp_column: %s', timestamp_column)
     logger.debug('device_column: %s', device_column)
     logger.debug('measurement_column: %s', measurement_column)
@@ -545,17 +556,23 @@ def export_timeseries(datacenter, device_type):
     assert any([timestamp_column, device_column, measurement_column])
     assert not all([timestamp_column, device_column, measurement_column])
     column_name_as_timestamp = bool(
-        args.get('column_name_as_timestamp', False)
+        args.get(
+            'column_name_as_timestamp',
+            settings.DEFAULT_EXPORT_TIMESTAMP_AS_COLUMN
+        )
     )
     column_name_as_measurement = bool(
-        args.get('column_name_as_measurement', False)
+        args.get(
+            'column_name_as_measurement',
+            settings.DEFAULT_EXPORT_MEASUREMENT_AS_COLUMN
+        ) and not column_name_as_timestamp
     )
     column_name_as_device = bool(
         args.get(
             'column_name_as_device',
-            not (
-                column_name_as_timestamp or column_name_as_measurement
-            )
+            settings.DEFAULT_EXPORT_DEVICE_AS_COLUMN
+        ) and not (
+            column_name_as_timestamp or column_name_as_measurement
         )
     )
     logger.debug('column_name_as_timestamp: %s', column_name_as_timestamp)
