@@ -327,7 +327,7 @@ DEVICE_TYPE_METADATA_GETTERS = {
 }
 
 
-def get_datacenter_device_type_metadata(datacenter, device_type):
+def _get_datacenter_device_type_metadata(datacenter, device_type):
     if device_type not in DEVICE_TYPE_METADATA_GETTERS:
         raise exception.RecordNotExists(
             'device type %s does not exist' % device_type
@@ -335,12 +335,57 @@ def get_datacenter_device_type_metadata(datacenter, device_type):
     return DEVICE_TYPE_METADATA_GETTERS[device_type](datacenter)
 
 
-def get_datacenter_metadata(datacenter):
+def get_datacenter_device_type_metadata(
+    session, datacenter_name, device_type
+):
+    datacenter = session.query(
+        models.Datacenter
+    ).filter_by(name=datacenter_name).first()
+    if not datacenter:
+        raise exception.RecordNotExists(
+            'datacener %s does not exist' % datacenter_name
+        )
+    device_type_metadata = _get_datacenter_device_type_metadata(
+        datacenter, device_type
+    )
+    logger.debug(
+        'datacenter %s device type %s metadata: %s',
+        datacenter_name, device_type, device_type_metadata
+    )
+    return device_type_metadata
+
+
+def _get_datacenter_metadata(datacenter):
     result = {}
     for key, value in six.iteritems(DEVICE_TYPE_METADATA_GETTERS):
         result[key] = value(datacenter)
     return result
 
+
+def get_datacenter_metadata(session, datacenter_name):
+    datacenter = session.query(
+        models.Datacenter
+    ).filter_by(name=datacenter_name).first()
+    if not datacenter:
+        raise exception.RecordNotExists(
+            'datacener %s does not exist' % datacenter_name
+        )
+    datacenter_metadata = _get_datacenter_metadata(datacenter)
+    logger.debug(
+        'datacenter %s metadata: %s',
+        datacenter_name, datacenter_metadata
+    )
+    return datacenter_metadata
+
+
+def get_metadata(session):
+    result = {}
+    datacenters = session.query(models.Datacenter)
+    for datacenter in datacenters:
+        result[datacenter.name] = (
+            get_datacenter_metadata(datacenter)
+        )
+    return result
 
 TIMESERIES_VALUE_CONVERTERS = {
     'binary': bool,

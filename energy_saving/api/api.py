@@ -226,44 +226,19 @@ def list_database_model_fields(model_name):
 
 def _get_device_type_metadata(datacenter_name, device_type):
     with database.session() as session:
-        datacenter = session.query(
-            models.Datacenter
-        ).filter_by(name=datacenter_name).first()
-        if not datacenter:
-            raise exception_handler.ItemNotFound(
-                'datacener %s does not exist' % datacenter_name
-            )
-        device_type_metadata = database.get_datacenter_device_type_metadata(
-            datacenter, device_type
+        return database.get_datacenter_device_type_metadata(
+            session, datacenter_name, device_type
         )
-        logger.debug(
-            'datacenter %s device type %s metadata: %s',
-            datacenter_name, device_type, device_type_metadata
-        )
-        return device_type_metadata
 
 
 def _get_datacenter_metadata(datacenter_name):
     with database.session() as session:
-        datacenter = session.query(
-            models.Datacenter
-        ).filter_by(name=datacenter_name).first()
-        if not datacenter:
-            raise exception_handler.ItemNotFound(
-                'datacener %s does not exist' % datacenter_name
-            )
-        return database.get_datacenter_metadata(datacenter)
+        return database.get_datacenter_metadata(session, datacenter_name)
 
 
 def _get_metadata():
-    result = {}
     with database.session() as session:
-        datacenters = session.query(models.Datacenter)
-        for datacenter in datacenters:
-            result[datacenter.name] = (
-                database.get_datacenter_metadata(datacenter)
-            )
-    return result
+        return database.get_metadata(session)
 
 
 @app.route("/metadata/timeseries/models", methods=['GET'])
@@ -314,17 +289,20 @@ def upload_model(model_name):
 
 def _get_where(data):
     wheres = []
-    starttime = data.pop('starttime', None)
+    starttime = data.get('starttime', None)
     if starttime and starttime[0] in ['-', '+']:
         starttime = 'now() %s %s' % (
             starttime[0], starttime[1:]
         )
-    endtime = data.pop('endtime', None)
+    endtime = data.get('endtime', None)
     if endtime and endtime[0] in ['-', '+']:
         endtime = 'now() %s %s' % (
             endtime[0], endtime[1:]
         )
-    for key, value in six.iteritems(data):
+    for key in ['datacenter', 'device_type', 'device']:
+        if key not in data:
+            continue
+        value = data[key]
         if isinstance(value, list):
             if not value:
                 continue
@@ -352,23 +330,23 @@ def _get_group_by(group_by):
 
 
 def _get_order_by(order_by):
-    if isinstance(order_by):
+    if isinstance(order_by, list):
         return ', '.join(order_by)
     else:
         return order_by
 
 
 def _list_timeseries(
-    measurement, data, data_formatter=None, extra_select_fields=None
+    session, measurement, data, data_formatter=None, extra_select_fields=None
 ):
     logger.debug('timeseries data: %s', data)
     response = {}
-    query = data.pop('query', None)
-    where = data.pop('where', None)
-    group_by = data.pop('group_by', [])
-    order_by = data.pop('order_by', [])
-    aggregation = data.pop('aggregation', None)
-    time_precision = data.pop(
+    query = data.get('query', None)
+    where = data.get('where', None)
+    group_by = data.get('group_by', [])
+    order_by = data.get('order_by', [])
+    aggregation = data.get('aggregation', None)
+    time_precision = data.get(
         'time_precision', settings.DEFAULT_TIME_PRECISION
     )
     if not query:
@@ -398,20 +376,19 @@ def _list_timeseries(
         )
     logger.debug('timeseries %s query: %s', measurement, query)
     response = []
-    with database.influx_session() as session:
-        result = session.query(query, epoch=time_precision)
-        for key, value in result.items():
-            logger.debug('iterate result %s', key)
-            _, group_tags = key
-            if aggregation:
-                for item in value:
-                    logger.debug('iterate record %s', item)
-                    if group_tags:
-                        item.update(group_tags)
-                    item['value'] = item.pop(aggregation)
-                    response.append(item)
-            else:
-                response.extend(list(value))
+    result = session.query(query, epoch=time_precision)
+    for key, value in result.items():
+        logger.debug('iterate result %s', key)
+        _, group_tags = key
+        if aggregation:
+            for item in value:
+                logger.debug('iterate record %s', item)
+                if group_tags:
+                    item.update(group_tags)
+                item['value'] = item.pop(aggregation)
+                response.append(item)
+        else:
+            response.extend(list(value))
     logger.debug('timeseries %s response: %s', measurement, response)
     if data_formatter:
         response = data_formatter(response)
@@ -441,6 +418,7 @@ def list_device_type_all_timeseries(datacenter, device_type):
     data = _get_request_args(as_list={
         'group_by': True,
         'order_by': True,
+        'measurement': True,
         'device': True
     })
     data.update({
@@ -450,12 +428,15 @@ def list_device_type_all_timeseries(datacenter, device_type):
     device_type_metadata = _get_device_type_metadata(
         datacenter, device_type
     )
+    measurements = data.get('measurement', device_type_metadata.keys())
     response = {}
-    for measurement, _ in six.iteritems(device_type_metadata):
-        response[measurement] = _list_timeseries(
-            measurement, dict(data), timeseries_device_type_formatter,
-            extra_select_fields=['device']
-        )
+    with database.influx_session() as session:
+        for measurement in measurements:
+            response[measurement] = _list_timeseries(
+                session, measurement, data,
+                timeseries_device_type_formatter,
+                extra_select_fields=['device']
+            )
     return utils.make_json_response(
         200, response
     )
@@ -475,20 +456,23 @@ def list_device_type_timeseries(datacenter, device_type, measurement):
         'datacenter': datacenter,
         'device_type': device_type
     })
-    response = _list_timeseries(
-        measurement, data, timeseries_device_type_formatter,
-        extra_select_fields=['device']
-    )
+    response = {}
+    with database.influx_session() as session:
+        response = _list_timeseries(
+            session, measurement, data,
+            timeseries_device_type_formatter,
+            extra_select_fields=['device']
+        )
     return utils.make_json_response(
         200, response
     )
 
 
 @app.route(
-    "/timeseries/<datacenter>/<device_type>/<device>/<measurement>",
+    "/timeseries/<datacenter>/<device_type>/<measurement>/<device>",
     methods=['GET']
 )
-def list_device_timeseries(datacenter, device_type, device, measurement):
+def list_device_timeseries(datacenter, device_type, measurement, device):
     data = _get_request_args(as_list={
         'group_by': True,
         'order_by': True
@@ -498,9 +482,11 @@ def list_device_timeseries(datacenter, device_type, device, measurement):
         'device_type': device_type,
         'device': device
     })
-    response = _list_timeseries(
-        measurement, data, timeseries_device_formatter
-    )
+    response = {}
+    with database.influx_session() as session:
+        response = _list_timeseries(
+            session, measurement, data, timeseries_device_formatter
+        )
     return utils.make_json_response(
         200, response
     )
@@ -594,24 +580,26 @@ def export_timeseries(datacenter, device_type):
     data = []
     with database.influx_session() as session:
         for measurement in measurements:
-            query = (
-                "select value, device from %s where datacenter='%s' "
-                "and device_type='%s' order by time" % (
-                    measurement, datacenter, device_type
-                )
+            tags = {
+                'datacenter': datacenter,
+                'device_type': device_type,
+                'device': list(devices),
+                'time_precision': time_precision
+            }
+            response = _list_timeseries(
+                session, measurement, tags,
+                timeseries_device_type_formatter,
+                extra_select_fields=['device']
             )
-            logger.debug(
-                'timeseries %s query: %s', measurement, query
-            )
-            result = session.query(
-                query, epoch=time_precision
-            )
-            for item in result.get_points():
-                if item['device'] in devices:
-                    timestamp = item['time']
+            for timestamp, device_data in six.iteritems(response):
+                for device, value in six.iteritems(device_data):
                     timestamps.add(timestamp)
-                    item['measurement'] = measurement
-                    data.append(item)
+                    data.append({
+                        'measurement': measurement,
+                        'device': device,
+                        'time': timestamp,
+                        'value': value
+                    })
     logger.debug('influx query response: %s', data)
     measurements = list(measurements)
     measurements = sorted(measurements)
@@ -619,25 +607,25 @@ def export_timeseries(datacenter, device_type):
     devices = sorted(devices)
     timestamps = list(timestamps)
     timestamps = sorted(timestamps)
+    logger.debug('timestamps: %s', timestamps)
     if time_precision:
         timestamps = sorted(timestamps)
     else:
         timestamps = sorted(
             timestamps, key=lambda timestamp: parser.parse(timestamp)
         )
-    logger.debug('timestamps: %s', timestamps)
     column_names = []
     row_keys = []
     column_key = None
+    if device_column:
+        column_names.append(device_column)
+        row_keys.append('device')
     if timestamp_column:
         column_names.append(timestamp_column)
         row_keys.append('time')
     if measurement_column:
         column_names.append(measurement_column)
         row_keys.append('measurement')
-    if device_column:
-        column_names.append(device_column)
-        row_keys.append('device')
     if column_name_as_timestamp:
         column_names.extend(timestamps)
         column_key = 'time'
@@ -660,19 +648,16 @@ def export_timeseries(datacenter, device_type):
     rows = {}
     for item in data:
         keys = []
-        key_map = {}
         for key in row_keys:
             keys.append(item[key])
-            key_map[key] = item[key]
-        key = '.'.join(keys)
-        _, row = rows.setdefault(key, (key_map, []))
+        row = rows.setdefault(tuple(keys), [])
         row.append(item)
-    rows = rows.values()
-    rows = sorted(rows)
-    for key_map, row in rows:
+    export_keys = rows.keys()
+    for keys in export_keys:
+        row = rows[keys]
         line = columns * [settings.DEFAULT_INFLUX_VALUE]
-        for key, value in six.iteritems(key_map):
-            line[column_index[column_name_map[key]]] = value
+        for i, key in enumerate(keys):
+            line[i] = key
         for item in row:
             line[column_index[item[column_key]]] = item['value']
         output.append(line)
