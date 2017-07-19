@@ -2,6 +2,7 @@
 import csv
 from dateutil import parser
 import logging
+import re
 import simplejson as json
 import six
 import StringIO
@@ -287,20 +288,30 @@ def upload_model(model_name):
     )
 
 
+def _get_timestamp(timestamp_str):
+    if timestamp_str[0] in ['+', '-']:
+        timestamp_str = 'now()' + timestamp_str
+    if re.match(
+        r'^(now\(\))?\s*[+-]?\s*\d+(u|ms|s|m|h|d|w)'
+        r'(\s*[+-]\s*\d+(u|ms|s|m|h|d|w))*$',
+        timestamp_str
+    ):
+        timestamp_str = re.sub(r'\s*?([+-])\s*?', r' \1 ', timestamp_str)
+    else:
+        timestamp_str = "'%s'" % timestamp_str
+    return timestamp_str
+
+
 def _get_where(data):
     wheres = []
     starttime = data.get('starttime', None)
-    if starttime and starttime[0] in ['-', '+']:
-        starttime = 'now() %s %s' % (
-            starttime[0], starttime[1:]
-        )
+    if starttime:
+        starttime = _get_timestamp(starttime)
     endtime = data.get('endtime', None)
-    if endtime and endtime[0] in ['-', '+']:
-        endtime = 'now() %s %s' % (
-            endtime[0], endtime[1:]
-        )
+    if endtime:
+        endtime = _get_timestamp(endtime)
     for key in ['datacenter', 'device_type', 'device']:
-        if key not in data:
+        if not data.get(key):
             continue
         value = data[key]
         if isinstance(value, list):
@@ -309,7 +320,7 @@ def _get_where(data):
             sub_wheres = []
             for item in value:
                 sub_wheres.append("%s = '%s'" % (key, item))
-            wheres.append(' or '.join(sub_wheres))
+            wheres.append('(%s)' % ' or '.join(sub_wheres))
         else:
             wheres.append("%s = '%s'" % (key, value))
     if starttime:
@@ -322,11 +333,14 @@ def _get_where(data):
         return ''
 
 
-def _get_group_by(group_by):
+def _get_group_by(group_by, fill):
     if isinstance(group_by, list):
-        return ', '.join(group_by)
+        group_by_clause = ', '.join(group_by)
     else:
-        return group_by
+        group_by_clause = group_by
+    if fill:
+        group_by_clause = '%s fill(%s)' % (group_by_clause, fill)
+    return group_by_clause
 
 
 def _get_order_by(order_by):
@@ -345,6 +359,7 @@ def _list_timeseries(
     where = data.get('where', None)
     group_by = data.get('group_by', [])
     order_by = data.get('order_by', [])
+    fill = data.get('fill')
     aggregation = data.get('aggregation', None)
     time_precision = data.get(
         'time_precision', settings.DEFAULT_TIME_PRECISION
@@ -363,7 +378,7 @@ def _list_timeseries(
             value = ', '.join(['value'] + (extra_select_fields or []))
         select = value
         if group_by:
-            group_by_clause = ' group by %s' % _get_group_by(group_by)
+            group_by_clause = ' group by %s' % _get_group_by(group_by, fill)
         else:
             group_by_clause = ''
         if order_by:
@@ -492,6 +507,15 @@ def list_device_timeseries(datacenter, device_type, measurement, device):
     )
 
 
+def _get_key_function(item_funcs):
+    def get_key(items):
+        keys = tuple(
+            item_func(item) for item_func, item in zip(item_funcs, items)
+        )
+        return keys
+    return get_key
+
+
 @app.route(
     "/export/timeseries/<datacenter>/<device_type>",
     methods=['GET']
@@ -499,7 +523,9 @@ def list_device_timeseries(datacenter, device_type, measurement, device):
 def export_timeseries(datacenter, device_type):
     args = _get_request_args(as_list={
         'measurement': True,
-        'device': True
+        'device': True,
+        'group_by': True,
+        'order_by': True
     })
     device_type_metadata = _get_device_type_metadata(
         datacenter, device_type
@@ -534,11 +560,6 @@ def export_timeseries(datacenter, device_type):
     logger.debug('timestamp_column: %s', timestamp_column)
     logger.debug('device_column: %s', device_column)
     logger.debug('measurement_column: %s', measurement_column)
-    column_name_map = {
-        'time': timestamp_column,
-        'device': device_column,
-        'measurement': measurement_column
-    }
     assert any([timestamp_column, device_column, measurement_column])
     assert not all([timestamp_column, device_column, measurement_column])
     column_name_as_timestamp = bool(
@@ -583,8 +604,14 @@ def export_timeseries(datacenter, device_type):
             tags = {
                 'datacenter': datacenter,
                 'device_type': device_type,
-                'device': list(devices),
-                'time_precision': time_precision
+                'device': args.get('device'),
+                'time_precision': time_precision,
+                'starttime': args.get('starttime'),
+                'endtime': args.get('endtime'),
+                'group_by': args.get('group_by'),
+                'order_by': args.get('order_by'),
+                'aggregation': args.get('aggregation'),
+                'fill': args.get('fill')
             }
             response = _list_timeseries(
                 session, measurement, tags,
@@ -606,26 +633,32 @@ def export_timeseries(datacenter, device_type):
     devices = list(devices)
     devices = sorted(devices)
     timestamps = list(timestamps)
-    timestamps = sorted(timestamps)
     logger.debug('timestamps: %s', timestamps)
+    timestamp_key_func = None
     if time_precision:
+        timestamp_key_func = long
         timestamps = sorted(timestamps)
     else:
-        timestamps = sorted(
-            timestamps, key=lambda timestamp: parser.parse(timestamp)
-        )
+        timestamp_key_func = lambda timestamp: parser.parse(timestamp)
+    timestamps = sorted(
+        timestamps, key=timestamp_key_func
+    )
     column_names = []
     row_keys = []
     column_key = None
+    row_key_funcs = []
     if device_column:
         column_names.append(device_column)
         row_keys.append('device')
+        row_key_funcs.append(str)
     if timestamp_column:
         column_names.append(timestamp_column)
         row_keys.append('time')
+        row_key_funcs.append(timestamp_key_func)
     if measurement_column:
         column_names.append(measurement_column)
         row_keys.append('measurement')
+        row_key_funcs.append(str)
     if column_name_as_timestamp:
         column_names.extend(timestamps)
         column_key = 'time'
@@ -653,6 +686,7 @@ def export_timeseries(datacenter, device_type):
         row = rows.setdefault(tuple(keys), [])
         row.append(item)
     export_keys = rows.keys()
+    export_keys = sorted(export_keys, key=_get_key_function(row_key_funcs))
     for keys in export_keys:
         row = rows[keys]
         line = columns * [settings.DEFAULT_INFLUX_VALUE]
