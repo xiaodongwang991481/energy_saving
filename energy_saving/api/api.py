@@ -304,10 +304,10 @@ def _get_timestamp(timestamp_str):
 
 def _get_where(data):
     wheres = []
-    starttime = data.get('starttime', None)
+    starttime = data.get('starttime')
     if starttime:
         starttime = _get_timestamp(starttime)
-    endtime = data.get('endtime', None)
+    endtime = data.get('endtime')
     if endtime:
         endtime = _get_timestamp(endtime)
     for key in ['datacenter', 'device_type', 'device']:
@@ -335,10 +335,9 @@ def _get_where(data):
 
 def _get_group_by(group_by):
     if isinstance(group_by, list):
-        group_by_clause = ', '.join(group_by)
+        return ', '.join(group_by)
     else:
-        group_by_clause = group_by
-    return group_by_clause
+        return group_by
 
 
 def _get_order_by(order_by):
@@ -353,17 +352,17 @@ def _list_timeseries(
 ):
     logger.debug('timeseries data: %s', data)
     response = {}
-    query = data.get('query', None)
-    where = data.get('where', None)
-    group_by = data.get('group_by', [])
-    order_by = data.get('order_by', [])
-    fill = data.get('fill', None)
-    aggregation = data.get('aggregation', None)
-    limit = data.get('limit', None)
-    offset = data.get('offset', None)
+    query = data.get('query')
+    where = data.get('where')
+    group_by = data.get('group_by') or []
+    order_by = data.get('order_by') or []
+    fill = data.get('fill')
+    aggregation = data.get('aggregation')
+    limit = data.get('limit')
+    offset = data.get('offset')
     time_precision = data.get(
-        'time_precision', settings.DEFAULT_TIME_PRECISION
-    )
+        'time_precision'
+    ) or settings.DEFAULT_TIME_PRECISION
     if not query:
         if not where:
             where = _get_where(data)
@@ -452,7 +451,7 @@ def list_device_type_all_timeseries(datacenter, device_type):
     device_type_metadata = _get_device_type_metadata(
         datacenter, device_type
     )
-    measurements = data.get('measurement', device_type_metadata.keys())
+    measurements = data.get('measurement') or device_type_metadata.keys()
     response = {}
     with database.influx_session() as session:
         for measurement in measurements:
@@ -539,9 +538,7 @@ def export_timeseries(datacenter, device_type):
     device_type_metadata = _get_device_type_metadata(
         datacenter, device_type
     )
-    measurements = args.get('measurement')
-    if not measurements:
-        measurements = device_type_metadata.keys()
+    measurements = args.get('measurement') or device_type_metadata.keys()
     measurements = set(measurements)
     devices = args.get('device')
     if not devices:
@@ -558,14 +555,14 @@ def export_timeseries(datacenter, device_type):
         datacenter, device_type, measurements, devices
     )
     timestamp_column = args.get(
-        'timestamp_column', settings.DEFAULT_EXPORT_TIMESTAMP_COLUMN
-    )
+        'timestamp_column'
+    ) or settings.DEFAULT_EXPORT_TIMESTAMP_COLUMN
     device_column = args.get(
-        'device_column', settings.DEFAULT_EXPORT_DEVICE_COLUMN
-    )
+        'device_column'
+    ) or settings.DEFAULT_EXPORT_DEVICE_COLUMN
     measurement_column = args.get(
-        'measurement_column', settings.DEFAULT_EXPORT_MEASUREMENT_COLUMN
-    )
+        'measurement_column'
+    ) or settings.DEFAULT_EXPORT_MEASUREMENT_COLUMN
     logger.debug('timestamp_column: %s', timestamp_column)
     logger.debug('device_column: %s', device_column)
     logger.debug('measurement_column: %s', measurement_column)
@@ -603,8 +600,8 @@ def export_timeseries(datacenter, device_type):
     assert not (column_name_as_device and device_column)
     assert not (column_name_as_measurement and measurement_column)
     time_precision = args.get(
-        'time_precision', settings.DEFAULT_TIME_PRECISION
-    )
+        'time_precision'
+    ) or settings.DEFAULT_TIME_PRECISION
     logger.debug('time precision: %s', time_precision)
     timestamps = set()
     data = []

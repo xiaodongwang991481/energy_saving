@@ -383,7 +383,7 @@ def get_metadata(session):
     datacenters = session.query(models.Datacenter)
     for datacenter in datacenters:
         result[datacenter.name] = (
-            get_datacenter_metadata(datacenter)
+            _get_datacenter_metadata(datacenter)
         )
     return result
 
