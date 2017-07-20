@@ -346,6 +346,7 @@ def _list_timeseries(
     group_by = data.get('group_by', [])
     order_by = data.get('order_by', [])
     aggregation = data.get('aggregation', None)
+    limit = data.get('limit', None)
     time_precision = data.get(
         'time_precision', settings.DEFAULT_TIME_PRECISION
     )
@@ -357,19 +358,23 @@ def _list_timeseries(
         else:
             where_clause = ''
         if aggregation:
-            value = '%s(value)' % aggregation
-            group_by = group_by + extra_select_fields
+            value = '%s(value) as value' % aggregation
         else:
-            value = ', '.join(['value'] + (extra_select_fields or []))
+            value = 'value'
+        group_by = group_by + extra_select_fields
         select = value
         if group_by:
             group_by_clause = ' group by %s' % _get_group_by(group_by)
         else:
             group_by_clause = ''
         if order_by:
-            order_by_clause = 'order by %s' % _get_order_by(order_by)
+            order_by_clause = ' order by %s' % _get_order_by(order_by)
         else:
             order_by_clause = ''
+        if limit:
+            limit_clause = ' limit %s' % limit
+        else:
+            
         query = 'select %s from %s%s%s%s' % (
             select, measurement, where_clause,
             group_by_clause, order_by_clause
@@ -380,15 +385,11 @@ def _list_timeseries(
     for key, value in result.items():
         logger.debug('iterate result %s', key)
         _, group_tags = key
-        if aggregation:
-            for item in value:
-                logger.debug('iterate record %s', item)
-                if group_tags:
-                    item.update(group_tags)
-                item['value'] = item.pop(aggregation)
-                response.append(item)
-        else:
-            response.extend(list(value))
+        for item in value:
+            logger.debug('iterate record %s', item)
+            if group_tags:
+                item.update(group_tags)
+            response.append(item)
     logger.debug('timeseries %s response: %s', measurement, response)
     if data_formatter:
         response = data_formatter(response)
@@ -1141,6 +1142,7 @@ def _create_prediction(datacenter_name):
 
 @app.route("/models/<datacenter>/<model_type>/build", methods=['POST'])
 def build_model(datacenter, model_type):
+    data = _get_request_data()
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.build_model', (
@@ -1159,6 +1161,7 @@ def build_model(datacenter, model_type):
 
 @app.route("/models/<datacenter>/<model_type>/train", methods=['POST'])
 def train_model(datacenter, model_type):
+    data = _get_request_data()
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.train_model', (
