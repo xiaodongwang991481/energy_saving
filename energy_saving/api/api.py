@@ -1206,6 +1206,9 @@ def build_model(datacenter, model_type):
 @app.route("/models/<datacenter>/<model_type>/train", methods=['POST'])
 def train_model(datacenter, model_type):
     data = _get_request_data()
+    model_filename = data.get(
+        'model_filename', '%s.json' % model_type
+    )
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.train_model', (
