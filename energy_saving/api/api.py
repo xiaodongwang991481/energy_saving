@@ -333,13 +333,11 @@ def _get_where(data):
         return ''
 
 
-def _get_group_by(group_by, fill):
+def _get_group_by(group_by):
     if isinstance(group_by, list):
         group_by_clause = ', '.join(group_by)
     else:
         group_by_clause = group_by
-    if fill:
-        group_by_clause = '%s fill(%s)' % (group_by_clause, fill)
     return group_by_clause
 
 
@@ -359,9 +357,10 @@ def _list_timeseries(
     where = data.get('where', None)
     group_by = data.get('group_by', [])
     order_by = data.get('order_by', [])
-    fill = data.get('fill')
+    fill = data.get('fill', None)
     aggregation = data.get('aggregation', None)
     limit = data.get('limit', None)
+    offset = data.get('offset', None)
     time_precision = data.get(
         'time_precision', settings.DEFAULT_TIME_PRECISION
     )
@@ -379,20 +378,29 @@ def _list_timeseries(
         group_by = group_by + extra_select_fields
         select = value
         if group_by:
-            group_by_clause = ' group by %s' % _get_group_by(group_by, fill)
+            group_by_clause = ' group by %s' % _get_group_by(group_by)
         else:
             group_by_clause = ''
         if order_by:
             order_by_clause = ' order by %s' % _get_order_by(order_by)
         else:
             order_by_clause = ''
+        if fill:
+            fill_clause = ' fill(%s)' % fill
+        else:
+            fill_clause = ''
         if limit:
             limit_clause = ' limit %s' % limit
         else:
-            
-        query = 'select %s from %s%s%s%s' % (
+            limit_clause = ''
+        if offset:
+            offset_clause = ' offset %s' % offset
+        else:
+            offset_clause = ''
+        query = 'select %s from %s%s%s%s%s%s%s' % (
             select, measurement, where_clause,
-            group_by_clause, order_by_clause
+            group_by_clause, order_by_clause, fill_clause,
+            limit_clause, offset_clause
         )
     logger.debug('timeseries %s query: %s', measurement, query)
     response = []
@@ -612,7 +620,9 @@ def export_timeseries(datacenter, device_type):
                 'group_by': args.get('group_by'),
                 'order_by': args.get('order_by'),
                 'aggregation': args.get('aggregation'),
-                'fill': args.get('fill')
+                'fill': args.get('fill'),
+                'limit': args.get('limit'),
+                'offset': args.get('offset')
             }
             response = _list_timeseries(
                 session, measurement, tags,
