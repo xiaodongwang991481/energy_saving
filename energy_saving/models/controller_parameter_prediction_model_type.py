@@ -1,6 +1,7 @@
-from energy_saving.models import base_model_type
+from energy_saving.models import base_model_type_builder
 
 
-class ControllerParamPredictionModelType(base_model_type.BaseModelType):
-    def get_data(datacenter):
-        pass
+class ControllerParamPredictionModelTypeBuilder(
+    base_model_type_builder.BaseModelTypeBuilder
+):
+    pass

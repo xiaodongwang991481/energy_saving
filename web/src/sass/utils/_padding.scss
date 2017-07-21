@@ -1,0 +1,55 @@
+
+
+@mixin auto-generate-paddings($paddings){
+
+    // Margin all
+    @each $val in $paddings{
+
+      .p-#{$val}{
+        padding: #{$val}px#{$mark-important};
+      }
+    }
+
+    // Margin top, bottom and vertical
+    @each $val in $paddings{
+
+      .pt-#{$val}{
+        padding-top: #{$val}px#{$mark-important};
+      }
+
+      .pb-#{$val}{
+        padding-bottom: #{$val}px#{$mark-important};
+      }
+
+      .pv-#{$val}{
+        padding-top:  #{$val}px#{$mark-important};
+        padding-bottom: #{$val}px#{$mark-important};
+      }
+    }
+
+    // Margin left, right and horizontal
+    @each $val in $paddings{
+
+      .pl-#{$val}{
+        padding-left: #{$val}px#{$mark-important};
+      }
+
+      .pr-#{$val}{
+        padding-right: #{$val}px#{$mark-important};
+      }
+
+      .ph-#{$val}{
+        padding-left: #{$val}px#{$mark-important};
+        padding-right: #{$val}px#{$mark-important};
+      }
+    }
+  }
+
+// General padding classes
+
+.pa {
+  padding-left: auto#{$mark-important};
+  padding-right: auto#{$mark-important};
+}
+
+@include auto-generate-paddings($paddings);

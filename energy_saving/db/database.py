@@ -355,11 +355,22 @@ def get_datacenter_device_type_metadata(
     return device_type_metadata
 
 
+def get_device_type_meatadata_from_datacenter_meatadata(
+    datacenter_metadata, device_type
+):
+    return datacenter_metadata['device_types'][device_type]
+
+
 def _get_datacenter_metadata(datacenter):
     result = {}
     for key, value in six.iteritems(DEVICE_TYPE_METADATA_GETTERS):
         result[key] = value(datacenter)
-    return result
+    return {
+        'time_interval': datacenter.time_interval,
+        'models': datacenter.models,
+        'properties': datacenter.properties,
+        'device_types': result
+    }
 
 
 def get_datacenter_metadata(session, datacenter_name):
@@ -376,6 +387,10 @@ def get_datacenter_metadata(session, datacenter_name):
         datacenter_name, datacenter_metadata
     )
     return datacenter_metadata
+
+
+def get_datacenter_metadata_from_metadata(metadata, datacenter_name):
+    return metadata[datacenter_name]
 
 
 def get_metadata(session):

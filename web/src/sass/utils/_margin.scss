@@ -1,0 +1,55 @@
+
+
+@mixin auto-generate-margins($margins){
+
+    // Margin all
+    @each $val in $margins{
+
+      .m-#{$val}{
+        margin: #{$val}px#{$mark-important};
+      }
+    }
+
+    // Margin top, bottom and vertical
+    @each $val in $margins{
+
+      .mt-#{$val}{
+        margin-top: #{$val}px#{$mark-important};
+      }
+
+      .mb-#{$val}{
+        margin-bottom: #{$val}px#{$mark-important};
+      }
+
+      .mv-#{$val}{
+        margin-top:  #{$val}px#{$mark-important};
+        margin-bottom: #{$val}px#{$mark-important};
+      }
+    }
+
+    // Margin left, right and horizontal
+    @each $val in $margins{
+
+      .ml-#{$val}{
+        margin-left: #{$val}px#{$mark-important};
+      }
+
+      .mr-#{$val}{
+        margin-right: #{$val}px#{$mark-important};
+      }
+
+      .mh-#{$val}{
+        margin-left: #{$val}px#{$mark-important};
+        margin-right: #{$val}px#{$mark-important};
+      }
+    }
+  }
+
+// General margin classes
+
+.ma {
+  margin-left: auto#{$mark-important};
+  margin-right: auto#{$mark-important};
+}
+
+@include auto-generate-margins($margins);

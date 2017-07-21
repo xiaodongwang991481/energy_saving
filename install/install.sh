@@ -89,6 +89,17 @@ sudo chmod 777 /var/www/energy_saving_web || exit 1
 sudo cp -n conf/energy-saving.conf /etc/apache2/sites-available/ || exit 1
 sudo sed -i "s/\$ENERGY_SAVING_PORT/$ENERGY_SAVING_PORT/g" /etc/apache2/sites-available/energy-saving.conf || exit 1
 
+sudo apt-get install python-software-properties || exit 1
+sudo curl -sL https://deb.nodesource.com/setup_8.x | sudo -E bash - || exit 1
+sudo apt-get install nodejs || exit 1
+
+cd web
+sudo npm install || exit 1
+sudo npm run build || exit 1
+sudo cp -rf build/* /var/www/energy_saving_web/ || exit 1
+cd ..
+sudo chmod -R 777 /var/www/energy_saving_web || exit 1
+
 sudo a2ensite energy-saving.conf || exit 1
 
 sudo energy-saving-db-manage upgrade heads || exit 1

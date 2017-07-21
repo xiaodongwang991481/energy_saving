@@ -1181,13 +1181,33 @@ def _create_prediction(datacenter_name):
         return prediction.name
 
 
-@app.route("/models/<datacenter>/<model_type>/build", methods=['POST'])
-def build_model(datacenter, model_type):
+def _create_test_result(datacenter_name):
+    with database.session() as session:
+        datacenter = session.query(
+            models.Datacenter
+        ).filter_by(name=datacenter_name).first()
+        test_result = models.TestResult()
+        datacenter.test_results.append(test_result)
+        session.flush()
+        return test_result.name
+
+
+@app.route("/models/<datacenter_name>/<model_type>/build", methods=['POST'])
+def build_model(datacenter_name, model_type):
     data = _get_request_data()
+    filename = data.get(
+        'filename', '%s.json' % model_type
+    )
+    with database.session() as session:
+        datacenter = session.query(models.Datacenter).filter_by(
+            name=datacenter_name
+        ).first()
+        datacenter.models[model_type] = filename
+        session.flush()
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.build_model', (
-                datacenter, model_type
+                datacenter_name, model_type
             )
         )
     except Exception as error:
@@ -1196,21 +1216,25 @@ def build_model(datacenter, model_type):
             'failed to send build_model to celery'
         )
     return utils.make_json_response(
-        200, {}
+        200, {'status': True}
     )
 
 
-@app.route("/models/<datacenter>/<model_type>/train", methods=['POST'])
-def train_model(datacenter, model_type):
+@app.route("/models/<datacenter_name>/<model_type>/train", methods=['POST'])
+def train_model(datacenter_name, model_type):
     data = _get_request_data()
-    model_filename = data.get(
-        'model_filename', '%s.json' % model_type
-    )
+    starttime = data.get('starttime')
+    endtime = data.get('endtime')
+    train_data = data.get('data')
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.train_model', (
-                datacenter, model_type
-            )
+                datacenter_name, model_type
+            ), {
+                'starttime': starttime,
+                'endtime': endtime,
+                'data': train_data
+            }
         )
     except Exception as error:
         logging.exception(error)
@@ -1218,17 +1242,26 @@ def train_model(datacenter, model_type):
             'failed to send train_model to celery'
         )
     return utils.make_json_response(
-        200, {}
+        200, {'status': True}
     )
 
 
-@app.route("/models/<datacenter>/<model_type>/test", methods=['POST'])
-def test_model(datacenter, model_type):
+@app.route("/models/<datacenter_name>/<model_type>/test", methods=['POST'])
+def test_model(datacenter_name, model_type):
+    data = _get_request_data()
+    starttime = data.get('starttime')
+    endtime = data.get('endtime')
+    test_data = data.get('data')
+    test_result = _create_test_result(datacenter_name)
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.test_model', (
-                datacenter, model_type
-            )
+                datacenter_name, model_type, test_result
+            ), {
+                'starttime': starttime,
+                'endtime': endtime,
+                'data': test_data
+            }
         )
     except Exception as error:
         logging.exception(error)
@@ -1236,22 +1269,30 @@ def test_model(datacenter, model_type):
             'failed to send test_model to celery'
         )
     return utils.make_json_response(
-        200, {}
+        200, {'status': status, 'test_result': test_result}
     )
 
 
-@app.route("/models/<datacenter>/<model_type>/apply", methods=['POST'])
-def apply_model(datacenter, model_type):
-    prediction = _create_prediction(datacenter)
+@app.route("/models/<datacenter_name>/<model_type>/apply", methods=['POST'])
+def apply_model(datacenter_name, model_type):
+    data = _get_request_data()
+    starttime = data.get('starttime')
+    endtime = data.get('endtime')
+    apply_data = data.get('data')
+    prediction = _create_prediction(datacenter_name)
     logger.debug(
         'datacenter %s model %s prediction %s',
-        datacenter, model_type, prediction
+        datacenter_name, model_type, prediction
     )
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.apply_model', (
-                datacenter, model_type, prediction
-            )
+                datacenter_name, model_type, prediction
+            ), {
+                'starttime': starttime,
+                'endtime': endtime,
+                'data': apply_data
+            }
         )
     except Exception as error:
         logging.exception(error)
@@ -1259,7 +1300,7 @@ def apply_model(datacenter, model_type):
             'failed to send apply_model to celery'
         )
     return utils.make_json_response(
-        200, {'prediction': prediction}
+        200, {'status': status, 'prediction': prediction}
     )
 
 
