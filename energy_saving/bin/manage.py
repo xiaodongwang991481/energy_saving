@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 #
 """utility binary to manage database."""
+import csv
 import os
 import os.path
+import StringIO
+import six
 import sys
 
 
@@ -23,6 +26,136 @@ def list_config():
     "List the commands."
     for key, value in app.config.items():
         print key, value
+
+
+@app_manager.command
+def generate_controller(datacenter):
+    controller_prefix = 'CRAC'
+    csv_header = ["location","datacenter_name","name","properties"]
+    string_buffer = StringIO.StringIO()
+    writer = csv.writer(string_buffer)
+    output = [csv_header]
+    for i in range(1, 29):
+        output.append([
+            '{}', datacenter, '%s%d' % (controller_prefix, i), '{}'
+        ])
+    writer.writerows(output)
+    print string_buffer.getvalue()
+
+
+@app_manager.command
+def generate_sensor(datacenter):
+    sensor_prefix = 'TH'
+    csv_header = ["location","datacenter_name","name","properties"]
+    string_buffer = StringIO.StringIO()
+    writer = csv.writer(string_buffer)
+    output = [csv_header]
+    for i in range(1, 48):
+        output.append([
+            '{}', datacenter,
+            '%s%s' % (sensor_prefix, format(i, '02d')), '{}'
+        ])
+    writer.writerows(output)
+    print string_buffer.getvalue()
+
+
+@app_manager.command
+def generate_power_supply(datacenter):
+    power_supply_prefixes = {'2AK': range(1,4), '2AT': range(3,8)}
+    power_supply_suffix = '-B'
+    csv_header = ["location","datacenter_name","name","properties"]
+    string_buffer = StringIO.StringIO()
+    writer = csv.writer(string_buffer)
+    output = [csv_header]
+    for prefix, items in six.iteritems(power_supply_prefixes):
+        for item in items:
+            output.append([
+                '{}', datacenter,
+                '%s%d%s' % (prefix, item, power_supply_suffix),
+                '{}'
+            ])
+    writer.writerows(output)
+    print string_buffer.getvalue()
+
+
+
+def _get_field_values(filename, field_name):
+    header = []
+    values = []
+    with open(filename, 'r') as csv_file:
+        reader = csv.reader(csv_file)
+        for row in reader:
+            if not row:
+                continue
+            if not header:
+                header = row
+            else:
+                row_data = dict(zip(header, row))
+                values.append(row_data[field_name])
+    return values
+
+
+@app_manager.command
+def generate_controller_attribute_data(
+    datacenter, controller_filename, controller_attribute_filename
+):
+    csv_header = ["datacenter_name","controller_name","name"]
+    string_buffer = StringIO.StringIO()
+    writer = csv.writer(string_buffer)
+    output = [csv_header]
+    controller_names = _get_field_values(controller_filename, 'name')
+    controller_attribute_names = _get_field_values(
+        controller_attribute_filename, 'name'
+    )
+    for controller_name in controller_names:
+        for controller_attribute_name in controller_attribute_names:
+            output.append([
+                datacenter, controller_name, controller_attribute_name
+            ])            
+    writer.writerows(output)
+    print string_buffer.getvalue()
+
+
+@app_manager.command
+def generate_sensor_attribute_data(
+    datacenter, sensor_filename, sensor_attribute_filename
+):
+    csv_header = ["datacenter_name","sensor_name","name"]
+    string_buffer = StringIO.StringIO()
+    writer = csv.writer(string_buffer)
+    output = [csv_header]
+    sensor_names = _get_field_values(sensor_filename, 'name')
+    sensor_attribute_names = _get_field_values(
+        sensor_attribute_filename, 'name'
+    )
+    for sensor_name in sensor_names:
+        for sensor_attribute_name in sensor_attribute_names:
+            output.append([
+                datacenter, sensor_name, sensor_attribute_name
+            ])            
+    writer.writerows(output)
+    print string_buffer.getvalue()
+
+
+@app_manager.command
+def generate_power_supply_attribute_data(
+    datacenter, power_supply_filename, power_supply_attribute_filename
+):
+    csv_header = ["datacenter_name","power_supply_name","name"]
+    string_buffer = StringIO.StringIO()
+    writer = csv.writer(string_buffer)
+    output = [csv_header]
+    power_supply_names = _get_field_values(power_supply_filename, 'name')
+    power_supply_attribute_names = _get_field_values(
+        power_supply_attribute_filename, 'name'
+    )
+    for power_supply_name in power_supply_names:
+        for power_supply_attribute_name in power_supply_attribute_names:
+            output.append([
+                datacenter, power_supply_name, power_supply_attribute_name
+            ])            
+    writer.writerows(output)
+    print string_buffer.getvalue()
 
 
 def main():

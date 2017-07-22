@@ -1,0 +1,5 @@
+type,unit,datacenter_name,name,properties
+continuous,%,openlab,humidity,{}
+continuous,C,openlab,temperature,{}
+continuous,%,openlab,cooling,{}
+continuous,C,openlab,flow,{}
