@@ -69,84 +69,84 @@ class Datacenter(BASE, LocationMixin):
         foreign_keys='[Sensor.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     sensor_attributes = relationship(
         'SensorAttr',
         foreign_keys='[SensorAttr.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     controllers = relationship(
         'Controller',
         foreign_keys='[Controller.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     controller_attributes = relationship(
         'ControllerAttr',
         foreign_keys='[ControllerAttr.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     controller_parameters = relationship(
         'ControllerParam',
         foreign_keys='[ControllerParam.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     environment_sensors = relationship(
         'EnvironmentSensor',
         foreign_keys='[EnvironmentSensor.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     environment_sensor_attributes = relationship(
         'EnvironmentSensorAttr',
         foreign_keys='[EnvironmentSensorAttr.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     power_supplies = relationship(
         'PowerSupply',
         foreign_keys='[PowerSupply.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     power_supply_attributes = relationship(
         'PowerSupplyAttr',
         foreign_keys='[PowerSupplyAttr.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     controller_power_supplies = relationship(
         'ControllerPowerSupply',
         foreign_keys='[ControllerPowerSupply.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     controller_power_supply_attributes = relationship(
         'ControllerPowerSupplyAttr',
         foreign_keys='[ControllerPowerSupplyAttr.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     energy_optimazation_target = relationship(
         'EnergyOptimazationTarget',
         foreign_keys='[EnergyOptimazationTarget.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter', uselist=False),
+        backref=backref('datacenter', uselist=False, viewonly=True),
         uselist=False
     )
     predictions = relationship(
@@ -154,14 +154,14 @@ class Datacenter(BASE, LocationMixin):
         foreign_keys='[Prediction.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
     test_results = relationship(
         'TestResult',
         foreign_keys='[TestResult.datacenter_name]',
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('datacenter')
+        backref=backref('datacenter', viewonly=True)
     )
 
     def __str__(self):
@@ -189,7 +189,7 @@ class PowerSupply(BASE, LocationMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('power_supply')
+        backref=backref('power_supply', viewonly=True)
     )
 
     def __str__(self):
@@ -222,7 +222,7 @@ class PowerSupplyAttr(BASE, AttrMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('attribute')
+        backref=backref('attribute', viewonly=True)
     )
 
     def __str__(self):
@@ -294,7 +294,7 @@ class ControllerPowerSupply(BASE, LocationMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('controller_power_supply')
+        backref=backref('controller_power_supply', viewonly=True)
     )
 
     def __str__(self):
@@ -327,7 +327,7 @@ class ControllerPowerSupplyAttr(BASE, AttrMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('attribute')
+        backref=backref('attribute', viewonly=True)
     )
 
     def __str__(self):
@@ -403,7 +403,7 @@ class Sensor(BASE, LocationMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('sensor')
+        backref=backref('sensor', viewonly=True)
     )
 
     def __str__(self):
@@ -436,7 +436,7 @@ class SensorAttr(BASE, AttrMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('attribute')
+        backref=backref('attribute', viewonly=True)
     )
     slo = relationship(
         'SensorAttrSLO',
@@ -446,7 +446,7 @@ class SensorAttr(BASE, AttrMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('attribute')
+        backref=backref('attribute', viewonly=True)
     )
 
     def __str__(self):
@@ -516,17 +516,6 @@ class SensorAttrData(BASE):
             onupdate="CASCADE", ondelete="CASCADE"
         )
     )
-    sensor_attribute_predictions = relationship(
-        'SensorAttrPrediction',
-        foreign_keys=(
-            '[SensorAttrPrediction.datacenter_name,'
-            'SensorAttrPrediction.sensor_name,'
-            'SensorAttrPrediction.sensor_attribute_name]'
-        ),
-        passive_deletes=True,
-        cascade='all, delete-orphan',
-        backref=backref('datacenter')
-    )
 
     def __str__(self):
         return (
@@ -555,7 +544,7 @@ class Controller(BASE, LocationMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('controller')
+        backref=backref('controller', viewonly=True)
     )
     parameter_data = relationship(
         'ControllerParamData',
@@ -565,7 +554,7 @@ class Controller(BASE, LocationMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('controller')
+        backref=backref('controller', viewonly=True)
     )
 
     def __str__(self):
@@ -598,7 +587,7 @@ class ControllerAttr(BASE, AttrMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('attribute')
+        backref=backref('attribute', viewonly=True)
     )
 
     def __str__(self):
@@ -675,7 +664,7 @@ class ControllerParam(BASE, ParamMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('parameter')
+        backref=backref('parameter', viewonly=True)
     )
 
     def __str__(self):
@@ -719,17 +708,6 @@ class ControllerParamData(BASE):
             onupdate="CASCADE", ondelete="CASCADE"
         )
     )
-    controller_parameter_predictions = relationship(
-        'ControllerParamPrediction',
-        foreign_keys=(
-            '[ControllerParamPrediction.datacenter_name,'
-            'ControllerParamPrediction.controller_name,'
-            'ControllerParamPrediction.controller_parameter_name]'
-        ),
-        passive_deletes=True,
-        cascade='all, delete-orphan',
-        backref=backref('controller_parameter')
-    )
 
     def __str__(self):
         return (
@@ -758,7 +736,7 @@ class EnvironmentSensor(BASE, LocationMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('environment_sensor')
+        backref=backref('environment_sensor', viewonly=True)
     )
 
     def __str__(self):
@@ -791,7 +769,7 @@ class EnvironmentSensorAttr(BASE, AttrMixin):
         ),
         passive_deletes=True,
         cascade='all, delete-orphan',
-        backref=backref('environment_sensor_attribute')
+        backref=backref('environment_sensor_attribute', viewonly=True)
     )
 
     def __str__(self):

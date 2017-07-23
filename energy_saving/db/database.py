@@ -88,16 +88,18 @@ def init(database_url=None, influx_url=None):
     logger.info('init influx %s', influx_url)
     root_logger = logging.getLogger()
     loglevel_mapping = logsetting.LOGLEVEL_MAPPING
+    logging.getLogger('urllib3.connectionpool').setLevel(logging.ERROR)
     fine_debug = root_logger.isEnabledFor(loglevel_mapping['fine'])
     if fine_debug:
-        logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
+        logging.getLogger('urllib3.connectionpool').setLevel(logging.DEBUG)
     finest_debug = root_logger.isEnabledFor(
         loglevel_mapping['finest']
     )
     if finest_debug:
-        logging.getLogger('sqlalchemy.dialects').setLevel(logging.INFO)
-        logging.getLogger('sqlalchemy.pool').setLevel(logging.INFO)
-        logging.getLogger('sqlalchemy.orm').setLevel(logging.INFO)
+        logging.getLogger('sqlalchemy.dialects').setLevel(logging.DEBUG)
+        logging.getLogger('sqlalchemy.pool').setLevel(logging.DEBUG)
+        logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
     poolclass = POOL_MAPPING[
         settings.DATABASE_POOL_TYPE
     ]
@@ -410,5 +412,13 @@ TIMESERIES_VALUE_CONVERTERS = {
 }
 
 
-def convert_timeseries_value(value, value_type):
-    return TIMESERIES_VALUE_CONVERTERS[value_type](value)
+def convert_timeseries_value(
+    value, value_type, raise_exception=False
+):
+    try:
+        return TIMESERIES_VALUE_CONVERTERS[value_type](value)
+    except Exception as error:
+        if raise_exception:
+            raise error
+        else:
+            return None

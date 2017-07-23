@@ -38,7 +38,7 @@ export default class MeasurementList extends React.Component {
         let self = this;
         let dataCenter = "openlab";
         let openLab = this.props.measurement_list[dataCenter] || {};
-        let keys = Object.keys(openLab);
+        let keys = Object.keys(openLab['device_types']);
         return (
             <div>
                 {
@@ -63,7 +63,7 @@ export default class MeasurementList extends React.Component {
                                     </thead>
                                     <tbody>
                                     {
-                                        Object.keys(openLab[item]).map(function (key, idx) {
+                                        Object.keys(openLab['device_types'][item]).map(function (key, idx) {
                                             return (
                                                 <tr key={idx}>
                                                     <td>{idx}</td>
@@ -71,10 +71,10 @@ export default class MeasurementList extends React.Component {
                                                         to={"/show-data/openlab/" + item + "/" + key}> {key}</Link>
                                                     </td>
                                                     <td>{
-                                                        Object.keys(openLab[item][key]['attribute']).map(function (name, i) {
+                                                        Object.keys(openLab['device_type'][item][key]['attribute']).map(function (name, i) {
                                                             return (
                                                                 <div key={i}>
-                                                                    {name} : {openLab[item][key]['attribute'][name]}
+                                                                    {name} : {openLab['device_type'][item][key]['attribute'][name]}
                                                                 </div>
                                                             )
                                                         })
@@ -82,7 +82,7 @@ export default class MeasurementList extends React.Component {
                                                     </td>
                                                     <td>
                                                         {
-                                                            openLab[item][key]['devices'].map(function (name, i) {
+                                                            openLab['device_types'][item][key]['devices'].map(function (name, i) {
                                                                 return (
                                                                     <div key={i}>
                                                                         <Link

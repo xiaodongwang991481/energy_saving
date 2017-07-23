@@ -1,5 +1,6 @@
 """Define all the RestfulAPI entry points."""
 import csv
+import datetime
 from dateutil import parser
 import logging
 import re
@@ -271,7 +272,6 @@ def upload_model(model_name):
         for row in reader:
             if not row:
                 continue
-            logger.debug('read row %s', row)
             if not fields:
                 fields = row
             else:
@@ -405,19 +405,15 @@ def _list_timeseries(
     response = []
     result = session.query(query, epoch=time_precision)
     for key, value in result.items():
-        logger.debug('iterate result %s', key)
         _, group_tags = key
         for item in value:
-            logger.debug('iterate record %s', item)
+            if not time_precision:
+                item['time'] = parser.parse(item['time'])
             if group_tags:
                 item.update(group_tags)
             response.append(item)
-    logger.debug('timeseries %s response: %s', measurement, response)
     if data_formatter:
         response = data_formatter(response)
-    logger.debug(
-        'timeseries %s formatted response: %s', measurement, response
-    )
     return response
 
 
@@ -635,38 +631,38 @@ def export_timeseries(datacenter, device_type):
                         'time': timestamp,
                         'value': value
                     })
-    logger.debug('influx query response: %s', data)
     measurements = list(measurements)
     measurements = sorted(measurements)
     devices = list(devices)
     devices = sorted(devices)
     timestamps = list(timestamps)
+    timestamps = sorted(timestamps)
     logger.debug('timestamps: %s', timestamps)
-    timestamp_key_func = None
-    if time_precision:
-        timestamp_key_func = long
-        timestamps = sorted(timestamps)
-    else:
-        timestamp_key_func = lambda timestamp: parser.parse(timestamp)
-    timestamps = sorted(
-        timestamps, key=timestamp_key_func
-    )
+    # timestamp_key_func = None
+    # if time_precision:
+    #     timestamp_key_func = long
+    #     timestamps = sorted(timestamps)
+    # else:
+    #     timestamp_key_func = lambda timestamp: parser.parse(timestamp)
+    # timestamps = sorted(
+    #     timestamps, key=timestamp_key_func
+    # )
     column_names = []
     row_keys = []
     column_key = None
-    row_key_funcs = []
+    # row_key_funcs = []
     if device_column:
         column_names.append(device_column)
         row_keys.append('device')
-        row_key_funcs.append(str)
+        # row_key_funcs.append(str)
     if timestamp_column:
         column_names.append(timestamp_column)
         row_keys.append('time')
-        row_key_funcs.append(timestamp_key_func)
+        # row_key_funcs.append(timestamp_key_func)
     if measurement_column:
         column_names.append(measurement_column)
         row_keys.append('measurement')
-        row_key_funcs.append(str)
+        # row_key_funcs.append(str)
     if column_name_as_timestamp:
         column_names.extend(timestamps)
         column_key = 'time'
@@ -694,7 +690,7 @@ def export_timeseries(datacenter, device_type):
         row = rows.setdefault(tuple(keys), [])
         row.append(item)
     export_keys = rows.keys()
-    export_keys = sorted(export_keys, key=_get_key_function(row_key_funcs))
+    export_keys = sorted(export_keys)
     for keys in export_keys:
         row = rows[keys]
         line = columns * [settings.DEFAULT_INFLUX_VALUE]
@@ -717,8 +713,6 @@ def _write_points(
 ):
     points = []
     for timestamp, value in six.iteritems(timeseries):
-        if time_precision:
-            timestamp = long(timestamp)
         points.append({
             'measurement': measurement,
             'time': timestamp,
@@ -726,33 +720,43 @@ def _write_points(
                 'value': value
             }
         })
-    logger.debug('timeseries %s points: %s', measurement, points)
-    logger.debug('timeseries %s tags: %s', measurement, tags)
     return session.write_points(
         points, time_precision=time_precision, tags=tags
     )
 
 
-def generate_device_type_timeseries(data, tags, measurement_metadata):
+def generate_device_type_timeseries(
+    data, tags, measurement_metadata, time_precision
+):
     for timestamp, timestamp_data in six.iteritems(data):
+        if not time_precision:
+            timestamp = parser.parse(timestamp)
+        else:
+            timestamp = long(timestamp)
         for device, value in six.iteritems(timestamp_data):
-            generated_tags = dict(tags)
-            generated_tags.update({
-                'device': device
-            })
             value = _convert_timeseries_value(
-                value, measurement_metadata['attribute']['type']
+                value, measurement_metadata['attribute']['type'],
+                False
             )
-            yield {timestamp: value}, generated_tags
+            if value is not None:
+                yield {timestamp: value}, device
 
 
-def generate_device_timeseries(data, tags, measurement_metadata):
-    generated_tags = dict(tags)
+def generate_device_timeseries(
+    data, tags, measurement_metadata, time_precision
+):
+    device = tags['device']
     for timestamp, value in six.iteritems(data):
+        if not time_precision:
+            timestamp = parser.parse(timestamp)
+        else:
+            timestamp = long(timestamp)
         value = _convert_timeseries_value(
-            value, measurement_metadata['attribute']['type']
+            value, measurement_metadata['attribute']['type'],
+            False
         )
-        yield {timestamp: value}, generated_tags
+        if value is not None:
+            yield {timestamp: value}, device
 
 
 def _create_timeseries(
@@ -760,31 +764,35 @@ def _create_timeseries(
     timeseries_generator, tags={}, time_precision=None
 ):
     status = True
-    outputs = []
-    for device_data, generated_tags in timeseries_generator(
-        data, tags, measurement_metadata
+    uniq_tags = {}
+    for device_data, device in timeseries_generator(
+        data, tags, measurement_metadata, time_precision
     ):
-        outputs.append((measurement, device_data, generated_tags))
+        uniq_tag = uniq_tags.setdefault(device, {})
+        uniq_tag.update(device_data)
     with database.influx_session() as session:
-        for measurement, device_data, generated_tags in outputs:
+        for device, device_data in six.iteritems(uniq_tags):
+            tags['device'] = device
             status &= _write_points(
                 session, measurement, device_data,
-                generated_tags, time_precision
+                tags, time_precision
             )
     logger.debug(
-        'create timeseries %s %s status: %s',
-        measurement, data, status
+        'create timeseries %s status: %s',
+        measurement, status
     )
     if not status:
         raise exception_handler.NotAccept(
-            'measurement %s with data %s is not acceptable' % (
-                measurement, data
+            'measurement %s data is not acceptable' % (
+                measurement
             )
         )
 
 
-def _convert_timeseries_value(value, value_type):
-    return database.convert_timeseries_value(value, value_type)
+def _convert_timeseries_value(value, value_type, raise_exception=False):
+    return database.convert_timeseries_value(
+        value, value_type, raise_exception=raise_exception
+    )
 
 
 @app.route(
@@ -797,6 +805,11 @@ def import_timeseries(datacenter, device_type):
         'upload timeseries datacenter=%s device_type=%s',
         datacenter, device_type
     )
+    add_second_for_same_timestamp = args.get(
+        'add_second_for_same_timestamp', 30
+    )
+    if add_second_for_same_timestamp:
+        add_second_for_same_timestamp = int(add_second_for_same_timestamp)
     default_measurement = args.get('measurement')
     default_device = args.get('device')
     default_timestamp = args.get('timestamp')
@@ -863,12 +876,9 @@ def import_timeseries(datacenter, device_type):
         column_name_as_measurement, measurement_column, default_measurement
     ])
     time_precision = args.get(
-        'time_precision', settings.DEFAULT_TIME_PRECISION
-    )
+        'time_precision'
+    ) or settings.DEFAULT_TIME_PRECISION
     logger.debug('time precision: %s', time_precision)
-    device_type_metadata = _get_device_type_metadata(
-        datacenter, device_type
-    )
     column_key = None
     if column_name_as_timestamp:
         column_key = 'time'
@@ -877,7 +887,6 @@ def import_timeseries(datacenter, device_type):
     if column_name_as_device:
         column_key = 'device'
     logger.debug('column_key: %s', column_key)
-    device_type_metadata = _get_device_type_metadata(datacenter, device_type)
     request_files = request.files.items(multi=True)
     if not request_files:
             raise exception_handler.NotAcceptable(
@@ -886,13 +895,15 @@ def import_timeseries(datacenter, device_type):
     logger.debug('upload csv files: %s', request_files)
     data = []
     column_names = set()
+    uniq_tags = {}
+    logger.debug('read csv files')
     for filename, upload in request_files:
+        logger.debug('read csv file %s', filename)
         fields = None
         reader = csv.reader(upload)
         for row in reader:
             if not row:
                 continue
-            logger.debug('read row %s', row)
             if not fields:
                 fields = row
                 for field in fields:
@@ -900,24 +911,23 @@ def import_timeseries(datacenter, device_type):
                         column_names.add(field)
             else:
                 data.append(dict(zip(fields, row)))
-    outputs = []
+    logger.debug('data is loaded from csv files')
+    device_type_metadata = _get_device_type_metadata(datacenter, device_type)
+    logger.debug('generate influx data')
     for item in data:
-        extra_tags = {}
+        tags = {}
         for key, value in six.iteritems(column_name_map):
-            extra_tags[value] = item.pop(
+            tags[value] = item.pop(
                 key, settings.DEFAULT_INFLUX_VALUE
             )
         for key, value in six.iteritems(item):
-            extra_tags[column_key] = key
-            tags = {
-                'datacenter': datacenter,
-                'device_type': device_type
-            }
-            tags.update(extra_tags)
-            measurement = tags.pop('measurement', default_measurement)
-            timestamp = tags.pop('time', default_timestamp)
-            device = tags.pop('device', default_device)
-            tags['device'] = device
+            tags[column_key] = key
+            measurement = tags.get('measurement', default_measurement)
+            timestamp = tags.get('time', default_timestamp)
+            device = tags.get('device', default_device)
+            if not measurement or not timestamp or not device:
+                logger.debug('%s tag missing in processing %s', tags, item)
+                continue
             if measurement not in device_type_metadata:
                 raise exception_handler.ItemNotFound(
                     'measurement %s does not found '
@@ -933,20 +943,49 @@ def import_timeseries(datacenter, device_type):
                         device, datacenter, device_type, measurement
                     )
                 )
-            if time_precision:
+            if not time_precision:
+                timestamp = parser.parse(timestamp)
+            else:
                 timestamp = long(timestamp)
-            value = _convert_timeseries_value(
-                value, measurement_metadata['attribute']['type']
-            )
-            outputs.append((measurement, {timestamp: value}, tags))
+            uniq_tag = (measurement, device)
+            tag_timestamps = uniq_tags.setdefault(uniq_tag, {})
+            while True:
+                if add_second_for_same_timestamp:
+                    if timestamp in tag_timestamps:
+                        logger.debug(
+                            'increase %s timestamp %s', uniq_tag, timestamp
+                        )
+                        if not time_precision:
+                            timestamp += datetime.timedelta(
+                                0, add_second_for_same_timestamp
+                            )
+                        else:
+                            timestamp += add_second_for_same_timestamp
+                        continue
+                value = _convert_timeseries_value(
+                    value, measurement_metadata['attribute']['type'],
+                    False
+                )
+                if value is not None:
+                    tag_timestamps[timestamp] = value
+                break
+    logger.debug('influx data is generated')
     status = True
+    logger.debug('write data to influx')
     with database.influx_session() as session:
-        for measurement, timeseries_data, tags in outputs:
+        tags = {
+            'datacenter': datacenter,
+            'device_type': device_type
+        }
+        for uniq_tags, timeseries_data in six.iteritems(uniq_tags):
+            measurement, device = uniq_tags
+            tags['device'] = device
             status &= _write_points(
                 session, measurement,
                 timeseries_data, tags,
                 time_precision
             )
+    logger.debug('influx data is written')
     if not status:
         raise exception_handler.NotAccept(
             'data import for datacenter %s device type %s '
@@ -967,9 +1006,9 @@ def create_device_type_all_timeseries(datacenter, device_type):
         datacenter, device_type, data
     )
     time_precision = data.pop(
-        'time_precision', settings.DEFAULT_TIME_PRECISION
-    )
-    tags = data.pop('tags', {})
+        'time_precision'
+    ) or settings.DEFAULT_TIME_PRECISION
+    tags = data.pop('tags') or {}
     tags.update({
         'datacenter': datacenter,
         'device_type': device_type
@@ -1001,9 +1040,9 @@ def create_device_type_timeseries(datacenter, device_type, measurement):
         datacenter, device_type, measurement, data
     )
     time_precision = data.pop(
-        'time_precision', settings.DEFAULT_TIME_PRECISION
-    )
-    tags = data.pop('tags', {})
+        'time_precision'
+    ) or settings.DEFAULT_TIME_PRECISION
+    tags = data.pop('tags') or {}
     tags.update({
         'datacenter': datacenter,
         'device_type': device_type
@@ -1040,9 +1079,9 @@ def create_device_timeseries(datacenter, device_type, device, measurement):
         datacenter, device_type, device, measurement, data
     )
     time_precision = data.pop(
-        'time_precision', settings.DEFAULT_TIME_PRECISION
-    )
-    tags = data.pop('tags', {})
+        'time_precision'
+    ) or settings.DEFAULT_TIME_PRECISION
+    tags = data.pop('tags') or {}
     tags.update({
         'datacenter': datacenter,
         'device_type': device_type,
