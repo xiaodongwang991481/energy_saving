@@ -11,7 +11,7 @@ from flask_admin.model.fields import AjaxSelectField
 from energy_saving.api import admin
 from energy_saving.db import database
 from energy_saving.db import models
-from energy_saving.utils import settings
+from energy_saving.models import base_model_type_builder
 
 
 logger = logging.getLogger(__name__)
@@ -72,5 +72,8 @@ def init():
             BaseModelView(model, database.SCOPED_SESSION())
         )
     admin.add_view(
-        FileAdmin(settings.DATA_DIR, '/static/', name='Static Files')
+        FileAdmin(
+            base_model_type_builder.CONF.model_dir,
+            '/static/', name='Model Files'
+        )
     )

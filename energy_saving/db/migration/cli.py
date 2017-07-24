@@ -1,5 +1,4 @@
 import os
-import sys
 
 from alembic import command as alembic_command
 from alembic import config as alembic_config
@@ -13,6 +12,7 @@ from oslo_config import cfg
 from energy_saving.db import database
 from energy_saving.utils import logsetting
 from energy_saving.utils import settings
+from energy_saving.utils import util
 
 
 HEAD_FILENAME = 'HEAD'
@@ -23,13 +23,13 @@ MIGRATION_DIR = os.path.join(
 alembic_ini = os.path.join(
     os.path.dirname(__file__), 'alembic.ini'
 )
-CONF = cfg.CONF
+CONF = util.CONF
 opts = [
     cfg.StrOpt('logfile',
                help='log file name',
                default=settings.DB_MANAGE_LOGFILE)
 ]
-CONF.register_opts(opts)
+CONF.register_cli_opts(opts)
 
 
 def add_alembic_subparser(sub, cmd):
@@ -268,7 +268,7 @@ def run_sanity_checks(config, revision):
 
 
 def main():
-    CONF(sys.argv[1:])
+    util.init()
     logsetting.init(CONF.logfile)
     database.init()
     config = get_alembic_config()

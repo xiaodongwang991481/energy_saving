@@ -12,6 +12,12 @@ sys.path.append(current_dir)
 from energy_saving.api import api
 
 
-def initialize_application():
-    application = api.init([])
-    return application
+def main():
+    application = api.init()
+    application.run(
+        host='0.0.0.0', port=CONF.server_port
+    )
+
+
+if __name__ == '__main__':
+    main()

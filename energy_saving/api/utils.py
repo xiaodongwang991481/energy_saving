@@ -1,5 +1,4 @@
 """Utils for API usage."""
-import datetime
 import logging
 import mimetypes
 import os.path
@@ -12,20 +11,11 @@ import simplejson as json
 logger = logging.getLogger(__name__)
 
 
-def json_serial(obj):
-    """JSON serializer for objects not serializable by default json code"""
-    if isinstance(obj, (datetime.datetime, datetime.date)):
-        serial = obj.isoformat()
-        return serial
-    raise TypeError("Type %s not serializable" % type(obj))
-
-
 def make_json_response(status_code, data, **kwags):
     """Wrap json format to the reponse object."""
 
     result = json.dumps(
-        data, ensure_ascii=False, indent=4,
-        default=json_serial
+        data, ensure_ascii=False, indent=4
     ).encode('utf-8') + '\r\n'
     resp = make_response(result, status_code)
     resp.headers['Content-type'] = 'application/json;charset=utf-8'

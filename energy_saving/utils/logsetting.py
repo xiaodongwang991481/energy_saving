@@ -10,6 +10,7 @@ from oslo_config import cfg
 import sys
 
 from energy_saving.utils import settings
+from energy_saving.utils import util
 
 
 opts = [
@@ -32,8 +33,8 @@ opts = [
                help='log backup count',
                default=settings.DEFAULT_LOGBACKUPCOUNT)
 ]
-CONF = cfg.CONF
-CONF.register_opts(opts)
+CONF = util.CONF
+CONF.register_cli_opts(opts)
 
 # mapping str setting in flag --loglevel to logging level.
 LOGLEVEL_MAPPING = {

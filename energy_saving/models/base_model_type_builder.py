@@ -1,17 +1,29 @@
-import logging
-import pandas
-import six
 
-from abc import ABC
+import abc
 # from abc import abstractmethod
+import logging
 import os
 import os.path
+import pandas
 import simplejson as json
+import six
+
+from oslo_config import cfg
 
 from energy_saving.db import database
 from energy_saving.utils import settings
+from energy_saving.utils import util
 
 
+opts = [
+    cfg.StrOpt(
+        'model_dir',
+        help='model directory',
+        default=settings.DATA_DIR
+    )
+]
+CONF = util.CONF
+CONF.register_cli_opts(opts)
 logger = logging.getLogger(__name__)
 
 
@@ -24,7 +36,7 @@ class BaseModelType(object):
 
     def get_model_file(self):
         return os.path.join(
-            settings.DATA_DIR, self.metadata['models'][self.model_type]
+            CONF.model_dirf, self.metadata['models'][self.model_type]
         )
 
     def load_model(self):
@@ -139,7 +151,7 @@ class BaseModelType(object):
             )
 
 
-class BaseModelTypeBuilder(ABC):
+class BaseModelTypeBuilder(abc.ABCMeta):
     def __init__(self, *args, **kwargs):
         logger.debug(
             'init %s with args=%s kwargs=%s',

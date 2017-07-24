@@ -73,11 +73,21 @@ DEFAULT_EXPORT_TIMESTAMP_AS_COLUMN = lazypy.delay(
     lambda: not bool(DEFAULT_EXPORT_TIMESTAMP_COLUMN)
 )
 DEFAULT_EXPORT_MEASUREMENT_AS_COLUMN = lazypy.delay(
-    lambda: not bool(DEFAULT_EXPORT_MEASUREMENT_COLUMN)
+    lambda: (
+        not bool(DEFAULT_EXPORT_MEASUREMENT_COLUMN) and
+        not lazypy.force(DEFAULT_EXPORT_TIMESTAMP_AS_COLUMN)
+    )
 )
 DEFAULT_EXPORT_DEVICE_AS_COLUMN = lazypy.delay(
-    lambda: not bool(DEFAULT_EXPORT_DEVICE_COLUMN)
+    lambda: (
+        not bool(DEFAULT_EXPORT_DEVICE_COLUMN) and
+        not (
+            lazypy.force(DEFAULT_EXPORT_TIMESTAMP_AS_COLUMN) and
+            lazypy.force(DEFAULT_EXPORT_MEASUREMENT_AS_COLUMN)
+        )
+    )
 )
+DEFAULT_IMPORT_ADD_SECONDS_SAME_TIMESTAMP = 30
 
 if (
     'ENERGY_SAVING_SETTINGS' in os.environ and

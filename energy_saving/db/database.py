@@ -22,6 +22,7 @@ from energy_saving.db import exception
 from energy_saving.db import models
 from energy_saving.utils import logsetting
 from energy_saving.utils import settings
+from energy_saving.utils import util
 
 
 opts = [
@@ -29,6 +30,11 @@ opts = [
         'database_uri',
         help='database uri',
         default=settings.DATABASE_URI
+    ),
+    cfg.StrOpt(
+        'database_pool_type',
+        help='database pool type',
+        default=settings.DATABASE_POOL_TYPE
     ),
     cfg.StrOpt(
         'influx_uri',
@@ -41,8 +47,8 @@ opts = [
         default=settings.INFLUX_TIMEOUT
     )
 ]
-CONF = cfg.CONF
-CONF.register_opts(opts)
+CONF = util.CONF
+CONF.register_cli_opts(opts)
 
 ENGINE = None
 SESSION = sessionmaker(autocommit=False, autoflush=False)
@@ -101,7 +107,7 @@ def init(database_url=None, influx_url=None):
         logging.getLogger('sqlalchemy.pool').setLevel(logging.DEBUG)
         logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
     poolclass = POOL_MAPPING[
-        settings.DATABASE_POOL_TYPE
+        CONF.database_pool_type
     ]
     ENGINE = create_engine(
         database_url, convert_unicode=True,
@@ -422,3 +428,17 @@ def convert_timeseries_value(
             raise error
         else:
             return None
+
+
+TIMESERIES_VALUE_FORMATTERS = {
+    'binary': bool,
+    'continuous': lambda x: round(x, 2),
+    'integer': int,
+    'discrete': str
+}
+
+
+def format_timeseries_value(
+    value, value_type
+):
+    return TIMESERIES_VALUE_FORMATTERS[value_type](value)

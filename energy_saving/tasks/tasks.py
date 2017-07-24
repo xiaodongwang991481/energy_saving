@@ -14,6 +14,7 @@ from energy_saving.models import model_type_builder_manager
 from energy_saving.tasks.client import celery
 from energy_saving.utils import logsetting
 from energy_saving.utils import settings
+from energy_saving.utils import util
 
 
 opts = [
@@ -21,8 +22,8 @@ opts = [
                help='log file name',
                default=settings.CELERY_LOGFILE)
 ]
-CONF = cfg.CONF
-CONF.register_opts(opts)
+CONF = util.CONF
+CONF.register_cli_opts(opts)
 
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ manager = model_type_builder_manager.ModelTypeBuilderManager()
 @celeryd_init.connect()
 def global_celery_init(**_):
     """Initialization code."""
+    util.init([])
     logsetting.init(CONF.logfile)
     database.init()
 
@@ -39,7 +41,7 @@ def global_celery_init(**_):
 @setup_logging.connect()
 def tasks_setup_logging(**_):
     """Setup logging options from energy saving setting."""
-    logsetting.init(CONF.logfile)
+    pass
 
 
 @celery.task(name='energy_saving.tasks.build_model')

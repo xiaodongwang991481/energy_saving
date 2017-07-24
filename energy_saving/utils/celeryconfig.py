@@ -5,7 +5,26 @@
 import logging
 import os.path
 
+from oslo_config import cfg
+
 from energy_saving.utils import settings
+from energy_saving.utils import util
+
+
+opts = [
+    cfg.StrOpt(
+        'celeryconfig_dir',
+        help='celery config directory',
+        default=settings.CELERYCONFIG_DIR
+    ),
+    cfg.StrOpt(
+        'celeryconfig_filename',
+        help='celery config filename',
+        default=settings.CELERYCONFIG_FILE
+    )
+]
+CONF = util.CONF
+CONF.register_cli_opts(opts)
 
 
 CELERY_RESULT_BACKEND = 'amqp://'
@@ -31,9 +50,9 @@ CELERY_DEFAULT_QUEUE = 'energy_saving'
 CELERY_DEFAULT_EXCHANGE = 'energy_saving'
 CELERY_DEFAULT_ROUTING_KEY = 'energy_saving'
 C_FORCE_ROOT = 1
-celeryconfig_file = settings.CELERYCONFIG_FILE
+celeryconfig_file = CONF.celeryconfig_filename
 if celeryconfig_file:
-    celeryconfig_dir = settings.CELERYCONFIG_DIR
+    celeryconfig_dir = CONF.celeryconfig_dir
     CELERY_CONFIG = os.path.join(
         celeryconfig_dir,
         celeryconfig_file
