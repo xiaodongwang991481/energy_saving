@@ -1,0 +1,12 @@
+{
+    "inputs": [{
+        "device_type": "controller_attribute",
+        "measurement": ["temperature", "humidity", "cooling"]
+    }],
+    "outputs": [{
+        "device_type": "controller_power_supply_attribute",
+        "measurement": ["power"]
+    }],
+    "nodes": "pue_prediction_nodes.json",
+    "model": "linear_regression"
+}

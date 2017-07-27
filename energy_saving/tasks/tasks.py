@@ -45,11 +45,13 @@ def tasks_setup_logging(**_):
 
 
 @celery.task(name='energy_saving.tasks.build_model')
-def build_model(datacenter, model_type):
+def build_model(datacenter, model_type, data=None):
     """build machine learning model for datacenter."""
     logger.debug('build model %s for %s', model_type, datacenter)
-    manager.get_model_type_builder(model_type).build(
-        datacenter, model_type
+    model_type_builder = manager.get_model_type_builder(model_type)
+    model_type_class = model_type_builder.get_model_type(datacenter)
+    model_type_class.build(
+        data=data
     )
 
 
@@ -60,8 +62,10 @@ def train_model(
 ):
     """train machine learning model for datacenter."""
     logger.debug('train model %s for %s', model_type, datacenter)
-    manager.get_model_type_builder(model_type).train(
-        datacenter, model_type, starttime=starttime,
+    model_type_builder = manager.get_model_type_builder(model_type)
+    model_type_class = model_type_builder.get_model_type(datacenter)
+    model_type_class.train(
+        starttime=starttime,
         endtime=endtime, data=data
     )
 
@@ -76,8 +80,10 @@ def test_model(
         'test model %s for %s in result %s',
         model_type, datacenter, test_result
     )
-    manager.get_model_type_builder(model_type).test(
-        datacenter, model_type, test_result, starttime=starttime,
+    model_type_builder = manager.get_model_type_builder(model_type)
+    model_type_class = model_type_builder.get_model_type(datacenter)
+    model_type_class.test(
+        test_result, starttime=starttime,
         endtime=endtime, data=data
     )
 
@@ -90,9 +96,11 @@ def apply_model(
     """apply machine learning model for datacenter."""
     logger.debug(
         'apply model %s for %s in prediction %s',
-        model_type, datacenter, prediction, prediction
+        model_type, datacenter, prediction
     )
-    manager.get_model_type_builder(model_type).apply(
-        datacenter, model_type, prediction, starttime=starttime,
+    model_type_builder = manager.get_model_type_builder(model_type)
+    model_type_class = model_type_builder.get_model_type(datacenter)
+    model_type_class.apply(
+        prediction, starttime=starttime,
         endtime=endtime, data=data
     )

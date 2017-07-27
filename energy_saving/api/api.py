@@ -309,6 +309,14 @@ def upload_model(model_name):
             'model %s is not found' % model_name
         )
     model = admin_api.MODELS[model_name]
+    field_mapping = {
+        column.name: column.type.python_type
+        for column in model.__table__.columns
+    }
+    primary_fields = [
+        column.name
+        for column in model.__table__.primary_key
+    ]
     data = []
     request_files = request.files.items(multi=True)
     if not request_files:
@@ -324,21 +332,41 @@ def upload_model(model_name):
                 continue
             if not fields:
                 fields = row
+                for field in fields:
+                    assert field in field_mapping
             else:
                 row = dict(zip(fields, row))
                 row_data = {}
                 for key, value in six.iteritems(row):
                     if value:
-                        row_data[key] = value
+                        row_data[key] = database.convert_column_value(
+                            value, field_mapping[key]
+                        )
                 data.append(row_data)
     with database.session() as session:
-        session.bulk_insert_mappings(model, data, True)
+        for row_data in data:
+            primary_data = {
+                key: row_data[key] for key in primary_fields
+            }
+            result = session.query(
+                model
+            ).filter_by(**primary_data).first()
+            if result:
+                for key, value in six.iteritems(row_data):
+                    if key not in primary_data:
+                        setattr(result, key, value)
+            else:
+                result = model(**row_data)
+                session.add(result)
+        session.flush()
     return utils.make_json_response(
         200, 'OK'
     )
 
 
 def _get_timestamp(timestamp_str):
+    if not timestamp_str:
+        return None
     if timestamp_str[0] in ['+', '-']:
         timestamp_str = 'now()' + timestamp_str
     if re.match(
@@ -355,11 +383,9 @@ def _get_timestamp(timestamp_str):
 def _get_where(data):
     wheres = []
     starttime = data.get('starttime')
-    if starttime:
-        starttime = _get_timestamp(starttime)
+    starttime = _get_timestamp(starttime)
     endtime = data.get('endtime')
-    if endtime:
-        endtime = _get_timestamp(endtime)
+    endtime = _get_timestamp(endtime)
     for key in ['datacenter', 'device_type', 'device']:
         if not data.get(key):
             continue
@@ -431,7 +457,8 @@ def _list_timeseries(
             value = '%s(value) as value' % aggregation
         else:
             value = 'value'
-        group_by = group_by + extra_select_fields
+        if extra_select_fields:
+            group_by = group_by + extra_select_fields
         select = value
         if group_by:
             group_by_clause = ' group by %s' % _get_group_by(group_by)
@@ -590,7 +617,8 @@ def list_device_timeseries(datacenter, device_type, measurement, device):
         response = _list_timeseries(
             session, measurement, data,
             measurement_metadata,
-            timeseries_device_formatter
+            timeseries_device_formatter,
+            extra_select_fields=['device']
         )
     return utils.make_json_response(
         200, response
@@ -1320,20 +1348,17 @@ def _create_test_result(datacenter_name):
 @app.route("/models/<datacenter_name>/<model_type>/build", methods=['POST'])
 def build_model(datacenter_name, model_type):
     data = _get_request_data()
-    filename = data.get(
-        'filename', '%s.json' % model_type
+    logger.debug(
+        'build model params: data=%s',
+        data
     )
-    with database.session() as session:
-        datacenter = session.query(models.Datacenter).filter_by(
-            name=datacenter_name
-        ).first()
-        datacenter.models[model_type] = filename
-        session.flush()
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.build_model', (
                 datacenter_name, model_type
-            )
+            ), {
+                'data': data
+            }
         )
     except Exception as error:
         logging.exception(error)
@@ -1348,9 +1373,16 @@ def build_model(datacenter_name, model_type):
 @app.route("/models/<datacenter_name>/<model_type>/train", methods=['POST'])
 def train_model(datacenter_name, model_type):
     data = _get_request_data()
-    starttime = data.get('starttime')
-    endtime = data.get('endtime')
+    starttime = _get_timestamp(data.get('starttime'))
+    endtime = _get_timestamp(data.get('endtime'))
     train_data = data.get('data')
+    logger.debug(
+        'train model params: starttime=%s, endtime=%s data=%s',
+        starttime, endtime, train_data
+    )
+    if not train_data:
+        assert starttime is not None
+        assert endtime is not None
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.train_model', (
@@ -1374,9 +1406,16 @@ def train_model(datacenter_name, model_type):
 @app.route("/models/<datacenter_name>/<model_type>/test", methods=['POST'])
 def test_model(datacenter_name, model_type):
     data = _get_request_data()
-    starttime = data.get('starttime')
-    endtime = data.get('endtime')
+    starttime = _get_timestamp(data.get('starttime'))
+    endtime = _get_timestamp(data.get('endtime'))
     test_data = data.get('data')
+    logger.debug(
+        'test model params: starttime=%s, endtime=%s data=%s',
+        starttime, endtime, test_data
+    )
+    if not test_data:
+        assert starttime is not None
+        assert endtime is not None
     test_result = _create_test_result(datacenter_name)
     try:
         celery_client.celery.send_task(
@@ -1401,9 +1440,16 @@ def test_model(datacenter_name, model_type):
 @app.route("/models/<datacenter_name>/<model_type>/apply", methods=['POST'])
 def apply_model(datacenter_name, model_type):
     data = _get_request_data()
-    starttime = data.get('starttime')
-    endtime = data.get('endtime')
+    starttime = _get_timestamp(data.get('starttime'))
+    endtime = _get_timestamp(data.get('endtime'))
     apply_data = data.get('data')
+    logger.debug(
+        'apply model params: starttime=%s, endtime=%s data=%s',
+        starttime, endtime, apply_data
+    )
+    if not apply_data:
+        assert starttime is not None
+        assert endtime is not None
     prediction = _create_prediction(datacenter_name)
     logger.debug(
         'datacenter %s model %s prediction %s',
@@ -1429,8 +1475,8 @@ def apply_model(datacenter_name, model_type):
     )
 
 
-def init():
-    util.init()
+def init(argv=None):
+    util.init(argv)
     logsetting.init(CONF.logfile)
     database.init()
     admin_api.init()

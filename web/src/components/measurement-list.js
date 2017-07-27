@@ -18,14 +18,14 @@ export default class MeasurementList extends React.Component {
 
 
     exportFile(dataCenter, deviceType) {
-        console.log(http.urlFormat(http.url.MODEL_EXPORT_TIME_SERIES_DATA.url,dataCenter,deviceType));
-        window.open(http.urlFormat(http.url.MODEL_EXPORT_TIME_SERIES_DATA.url,dataCenter,deviceType));
+        console.log(http.urlFormat(http.url.MODEL_EXPORT_TIME_SERIES_DATA.url, dataCenter, deviceType));
+        window.open(http.urlFormat(http.url.MODEL_EXPORT_TIME_SERIES_DATA.url, dataCenter, deviceType));
     }
 
     uploadFile(dataCenter, deviceType, event) {
         var data = new FormData();
         data.append('file', event.target.files[0]);
-        axios.post(http.urlFormat(http.url.MODEL_IMPORT_TIME_SERIES_DATA.url,dataCenter,deviceType) ,data).then(function(item){
+        axios.post(http.urlFormat(http.url.MODEL_IMPORT_TIME_SERIES_DATA.url, dataCenter, deviceType), data).then(function (item) {
             alert("upload success");
         })
     }
@@ -38,69 +38,89 @@ export default class MeasurementList extends React.Component {
         let self = this;
         let dataCenter = "openlab";
         let openLab = this.props.measurement_list[dataCenter] || {};
-        let keys = Object.keys(openLab['device_types']);
+        if (openLab && openLab['device_types']) {
+            openLab = openLab['device_types'];
+        }
+        let keys = Object.keys(openLab);
         return (
             <div>
                 {
-                    keys.map(function (item, index) {
+                    Object.keys(this.props.measurement_list).map(function (centerName, cIdx) {
+                        let deviceTypes = self.props.measurement_list[centerName]['device_types'];
                         return (
-                            <div key={index} className="mb-40">
-                                <div>{item}</div>
-                                <Button className="mt-10 mb-10 mr-10" bsStyle="success"
-                                        onClick={self.exportFile.bind(self, dataCenter, item)}>export</Button>
-                                <label className="btn btn-primary mt-10 mb-10">
-                                    Import <input type="file" className="hidden"
-                                                  onChange={self.uploadFile.bind(this, dataCenter, item)}/>
-                                </label>
-                                <Table striped bordered condensed hover>
-                                    <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Name</th>
-                                        <th>Atribute</th>
-                                        <th>Devices</th>
-                                    </tr>
-                                    </thead>
-                                    <tbody>
-                                    {
-                                        Object.keys(openLab['device_types'][item]).map(function (key, idx) {
+                            <div key={cIdx}>
+                                <h2>{centerName}</h2>
+                                {
+                                    Object.keys(deviceTypes)
+                                        .map(function (typeName, tIdx) {
+                                            let measurements = deviceTypes[typeName];
                                             return (
-                                                <tr key={idx}>
-                                                    <td>{idx}</td>
-                                                    <td><Link
-                                                        to={"/show-data/openlab/" + item + "/" + key}> {key}</Link>
-                                                    </td>
-                                                    <td>{
-                                                        Object.keys(openLab['device_type'][item][key]['attribute']).map(function (name, i) {
-                                                            return (
-                                                                <div key={i}>
-                                                                    {name} : {openLab['device_type'][item][key]['attribute'][name]}
-                                                                </div>
-                                                            )
-                                                        })
-                                                    }
-                                                    </td>
-                                                    <td>
+                                                <div key={tIdx} className="mb-40">
+                                                    <div>{typeName}</div>
+                                                    <Button className="mt-10 mb-10 mr-10" bsStyle="success"
+                                                            onClick={self.exportFile.bind(self, centerName, typeName)}>export</Button>
+                                                    <label className="btn btn-primary mt-10 mb-10">
+                                                        Import <input type="file" className="hidden"
+                                                                      onChange={self.uploadFile.bind(this, centerName, typeName)}/>
+                                                    </label>
+                                                    <Table striped bordered condensed hover>
+                                                        <thead>
+                                                        <tr>
+                                                            <th>#</th>
+                                                            <th>Name</th>
+                                                            <th>Atribute</th>
+                                                            <th>Devices</th>
+                                                        </tr>
+                                                        </thead>
+                                                        <tbody>
                                                         {
-                                                            openLab['device_types'][item][key]['devices'].map(function (name, i) {
+                                                            Object.keys(measurements).map(function (key, idx) {
                                                                 return (
-                                                                    <div key={i}>
-                                                                        <Link
-                                                                            to={"/show-data/openlab/" + item + "/" + key + "/" + name}> {name}</Link>
-                                                                    </div>
+                                                                    <tr key={idx}>
+                                                                        <td>{idx}</td>
+                                                                        <td><Link
+                                                                            to={"/show-data/" + centerName + "/" + typeName + "/" + key}> {key}</Link>
+                                                                        </td>
+                                                                        <td>{
+                                                                            Object.keys(measurements[key]['attribute']).map(function (name, i) {
+                                                                                return (
+                                                                                    <div key={i}>
+                                                                                        {name}
+                                                                                        : {measurements[key]['attribute'][name]}
+                                                                                    </div>
+                                                                                )
+                                                                            })
+                                                                        }
+                                                                        </td>
+                                                                        <td>
+                                                                            {
+                                                                                measurements[key]['devices'].map(function (name, i) {
+                                                                                    return (
+                                                                                        <div key={i}>
+                                                                                            <Link
+                                                                                                to={"/show-data/" + centerName + "/" + typeName + "/" + key + "/" + name}> {name}</Link>
+                                                                                        </div>
+                                                                                    )
+                                                                                })
+                                                                            }
+                                                                        </td>
+                                                                    </tr>
                                                                 )
                                                             })
                                                         }
-                                                    </td>
-                                                </tr>
-                                            )
+                                                        </tbody>
+                                                    </Table>
+                                                </div>
+                                            );
                                         })
-                                    }
-                                    </tbody>
-                                </Table>
+                                }
                             </div>
-                        )
+                        );
                     })
+                }
+
+                {
+
                 }
             </div>
         );

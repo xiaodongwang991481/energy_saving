@@ -105,7 +105,7 @@ var config = {
     devServer: {
         port: 9999,
         proxy: {
-            "/api": "http://192.168.253.207:8080"
+            "/api": "http://10.145.89.250:8080"
         },
         historyApiFallback: true,
 

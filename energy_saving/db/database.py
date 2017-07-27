@@ -1,6 +1,7 @@
 """Provider interface to manipulate database."""
 import logging
 from oslo_config import cfg
+import simplejson as json
 import six
 
 from contextlib import contextmanager
@@ -239,6 +240,25 @@ def drop_db():
     models.BASE.metadata.drop_all(bind=ENGINE)
 
 
+COLUMN_TYPE_CONVERTER = {
+    dict: json.loads
+}
+
+
+def convert_column_value(value, value_type):
+    try:
+        if value_type in COLUMN_TYPE_CONVERTER:
+            return COLUMN_TYPE_CONVERTER[value_type](value)
+        return value_type(value)
+    except Exception as error:
+        logger.exception(error)
+        logger.error(
+            'failed to convert %s to %s: %s',
+            value, value_type, error
+        )
+        raise error
+
+
 def _get_attribute_dict(attribute):
     return {
         'devices': [],
@@ -414,7 +434,6 @@ TIMESERIES_VALUE_CONVERTERS = {
     'binary': bool,
     'continuous': float,
     'integer': int,
-    'discrete': str
 }
 
 
@@ -422,8 +441,16 @@ def convert_timeseries_value(
     value, value_type, raise_exception=False
 ):
     try:
-        return TIMESERIES_VALUE_CONVERTERS[value_type](value)
+        if value_type in TIMESERIES_VALUE_CONVERTERS:
+            return TIMESERIES_VALUE_CONVERTERS[value_type](value)
+        else:
+            return value
     except Exception as error:
+        logger.exception(error)
+        logger.error(
+            'failed to convert %s to %s: %s',
+            value, value_type, error
+        )
         if raise_exception:
             raise error
         else:
@@ -431,14 +458,20 @@ def convert_timeseries_value(
 
 
 TIMESERIES_VALUE_FORMATTERS = {
-    'binary': bool,
     'continuous': lambda x: round(x, 2),
-    'integer': int,
-    'discrete': str
 }
 
 
 def format_timeseries_value(
     value, value_type
 ):
-    return TIMESERIES_VALUE_FORMATTERS[value_type](value)
+    try:
+        if value_type in TIMESERIES_VALUE_FORMATTERS:
+            return TIMESERIES_VALUE_FORMATTERS[value_type](value)
+        return value
+    except Exception as error:
+        logger.error(
+            'failed to format %s in %s: %s',
+            value, value_type, error
+        )
+        raise error

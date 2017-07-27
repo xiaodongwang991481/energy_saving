@@ -1,2 +1,2 @@
-location,name,type,properties,models
-{},openlab,lab,{},{}
+location,name,type,properties,models,time_interval
+{},openlab,lab,{},{},300
