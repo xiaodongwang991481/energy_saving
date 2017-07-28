@@ -23,6 +23,7 @@ sudo apt-get install -y influxdb || exit 1
 cd ${ENERGY_SAVING_DIR}
 sudo pip install --upgrade pip
 sudo pip install --upgrade tox pep8 setuptools celery
+sudo pip install jupyter || exit 1
 sudo pip install --upgrade -r requirements.txt -r test-requirements.txt || exit 1
 sudo python setup.py install || exit 1
 
@@ -86,7 +87,11 @@ sudo mkdir -p /var/log/energy_saving || exit 1
 sudo chmod 777 /var/log/energy_saving || exit 1
 sudo mkdir -p /var/www/energy_saving_web || exit 1
 sudo chmod 777 /var/www/energy_saving_web || exit 1
+sudo mkdir -p /opt/energy_savivng || exit 1
+sudo chmod 777 /opt/energy_saving || exit 1
 
+sudo -i jupyter notebook --generate-config --allow-root || exit 1
+sudo cp -f conf/jupyter.service /etc/systemd/system || exit 1
 sudo cp -n conf/energy-saving.conf /etc/apache2/sites-available/ || exit 1
 sudo sed -i "s/\$ENERGY_SAVING_PORT/$ENERGY_SAVING_PORT/g" /etc/apache2/sites-available/energy-saving.conf || exit 1
 
@@ -107,6 +112,15 @@ sudo energy-saving-db-manage upgrade heads || exit 1
 echo "db schema is created"
 
 sudo systemctl daemon-reload
+sudo systemctl enable jupyter.service
+sudo restart jupyter.service
+if [[ "$?" != "0" ]]; then
+    echo "failed to restart jupyter"
+    exit 1
+else
+    echo "jupyter is restarted"
+fi
+
 sudo systemctl enable apache2.service
 sudo systemctl restart apache2.service
 sudo systemctl status apache2.service

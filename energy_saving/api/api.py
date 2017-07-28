@@ -18,6 +18,7 @@ from energy_saving.api import exception_handler
 from energy_saving.api import utils
 from energy_saving.db import database
 from energy_saving.db import models
+from energy_saving.models import model_type_builder_manager
 from energy_saving.tasks import client as celery_client
 from energy_saving.utils import logsetting
 from energy_saving.utils import settings
@@ -53,6 +54,11 @@ opts = [
         'timeseries_default_value',
         help='tiemseries default value',
         default=settings.DEFAULT_INFLUX_VALUE
+    ),
+    cfg.ListOpt(
+        'timeseries_ignorable_values',
+        help='timeseries ignorable values when import',
+        default=settings.IGNORABLE_INFLUX_VALUE
     ),
     cfg.StrOpt(
         'timeseries_export_timestamp_column',
@@ -90,6 +96,7 @@ CONF.register_cli_opts(opts)
 
 
 logger = logging.getLogger(__name__)
+model_type_manager = model_type_builder_manager.ModelTypeBuilderManager()
 
 
 def _clean_data(data, keys):
@@ -1039,9 +1046,11 @@ def import_timeseries(datacenter, device_type):
     for item in data:
         tags = {}
         for key, value in six.iteritems(column_name_map):
-            tags[value] = item.pop(
+            tag_value = item.pop(
                 key, CONF.timeseries_default_value
             )
+            if tag_value not in CONF.timeseries_ignorable_values:
+                tags[value] = tag_value
         for key, value in six.iteritems(item):
             tags[column_key] = key
             measurement = tags.get('measurement', default_measurement)
@@ -1068,21 +1077,18 @@ def import_timeseries(datacenter, device_type):
             timestamp = timestamp_converter(timestamp)
             uniq_tag = (measurement, device)
             tag_timestamps = uniq_tags.setdefault(uniq_tag, {})
-            while True:
+            value = _convert_timeseries_value(
+                value, measurement_metadata['attribute']['type'],
+                False
+            )
+            if value is not None:
                 if import_add_seconds_same_timestamp:
-                    if timestamp in tag_timestamps:
+                    while timestamp in tag_timestamps:
                         logger.debug(
                             'increase %s timestamp %s', uniq_tag, timestamp
                         )
                         timestamp += import_add_seconds_same_timestamp
-                        continue
-                value = _convert_timeseries_value(
-                    value, measurement_metadata['attribute']['type'],
-                    False
-                )
-                if value is not None:
-                    tag_timestamps[timestamp] = value
-                break
+                tag_timestamps[timestamp] = value
     logger.debug('influx data is generated')
     status = True
     logger.debug('write data to influx')
@@ -1343,6 +1349,25 @@ def _create_test_result(datacenter_name):
         datacenter.test_results.append(test_result)
         session.flush()
         return test_result.name
+
+
+@app.route("/models/<datacenter_name>", methods=['GET'])
+def list_model_types(datacenter_name):
+    model_types = model_type_manager.model_type_builders.keys()
+    model_types = sorted(model_types)
+    return utils.make_json_response(
+        200, model_types
+    )
+
+
+@app.route("/models/<datacenter_name>/<model_type>", methods=['GET'])
+def show_model_type(datacenter_name, model_type):
+    model_type = model_type_manager.model_type_builders.get_model_type_builder(
+        model_type
+    ).get_model_type(datacenter_name)
+    return utils.make_json_response(
+        200, model_type.config
+    )
 
 
 @app.route("/models/<datacenter_name>/<model_type>/build", methods=['POST'])
