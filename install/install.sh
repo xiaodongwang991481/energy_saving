@@ -90,7 +90,6 @@ sudo mkdir -p /opt/energy_savivng || exit 1
 sudo chmod 777 /opt/energy_saving || exit 1
 
 sudo -i jupyter notebook --generate-config --allow-root || exit 1
-sudo cp -f conf/jupyter_notebook_config.py /root/.jupyter/ || exit 1
 sudo cp -f conf/jupyter.service /etc/systemd/system || exit 1
 sudo cp -n conf/energy-saving.conf /etc/apache2/sites-available/ || exit 1
 sudo sed -i "s/\$ENERGY_SAVING_PORT/$ENERGY_SAVING_PORT/g" /etc/apache2/sites-available/energy-saving.conf || exit 1

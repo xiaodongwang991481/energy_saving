@@ -4,7 +4,7 @@ Description=Jupyter Workplace
 [Service]
 Type=simple
 PIDFile=/run/jupyter.pid
-ExecStart=/usr/local/bin/jupyter-notebook --allow-root --config=/root/.jupyter/jupyter_notebook_config.py
+ExecStart=/usr/local/bin/jupyter-notebook --allow-root --config=/root/.jupyter/jupyter_notebook_config.py --ip='*' --NotebookApp.token=
 User=root
 Group=root
 WorkingDirectory=/root
