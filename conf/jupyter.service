@@ -1,0 +1,15 @@
+[Unit]
+Description=Jupyter Workplace
+
+[Service]
+Type=simple
+PIDFile=/run/jupyter.pid
+ExecStart=/usr/local/bin/jupyter-notebook --allow-root --config=/root/.jupyter/jupyter_notebook_config.py
+User=root
+Group=root
+WorkingDirectory=/root
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
