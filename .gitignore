@@ -100,3 +100,7 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# web
+web/node_modules/
+web/build/

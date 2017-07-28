@@ -1,8 +1,12 @@
 """Exceptions for RESTful API."""
+import logging
 import traceback
 
 from energy_saving.api import app
 from energy_saving.api import utils
+
+
+logger = logging.getLogger(__name__)
 
 
 class HTTPException(Exception):
@@ -68,15 +72,14 @@ class ConflictObject(HTTPException):
 
 @app.errorhandler(Exception)
 def handle_exception(error):
+    logger.exception(error)
     if hasattr(error, 'to_dict'):
         response = error.to_dict()
     else:
         response = {'message': str(error)}
     if app.debug and hasattr(error, 'traceback'):
         response['traceback'] = error.traceback
-
     status_code = 400
     if hasattr(error, 'status_code'):
         status_code = error.status_code
-
-        return utils.make_json_response(status_code, response)
+    return utils.make_json_response(status_code, response)

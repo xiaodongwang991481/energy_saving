@@ -68,6 +68,7 @@ class BaseModelView(ModelView):
 
 def init():
     for model_name, model in six.iteritems(MODELS):
+        logger.debug('add model %s view %s', model_name, model)
         admin.add_view(
             BaseModelView(model, database.SCOPED_SESSION())
         )

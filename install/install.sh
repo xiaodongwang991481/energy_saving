@@ -21,8 +21,9 @@ sudo apt-get install -y apache2 libapache2-mod-wsgi || exit 1
 sudo apt-get install -y influxdb || exit 1
 
 cd ${ENERGY_SAVING_DIR}
-
-sudo pip install -r requirements.txt -r test-requirements.txt || exit 1
+sudo pip install --upgrade pip
+sudo pip install --upgrade tox pep8 setuptools celery
+sudo pip install --upgrade -r requirements.txt -r test-requirements.txt || exit 1
 sudo python setup.py install || exit 1
 
 for NTP_SERVER in $NTP_SERVERS; do
@@ -78,7 +79,7 @@ echo "mysql server privileges are updated"
 sudo mysql -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "GRANT ALL ON *.* to '${MYSQL_USER}'@'${MYSQL_SERVER_IP}' IDENTIFIED BY '${MYSQL_PASSWORD}'; flush privileges;" || exit 1
 echo "mysql server privileges are updated"
 
-sudo sudo mysql -h${MYSQL_SERVER_IP} --port=${MYSQL_SERVER_PORT} -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "drop database ${MYSQL_DATABASE};" || exit 1
+sudo sudo mysql -h${MYSQL_SERVER_IP} --port=${MYSQL_SERVER_PORT} -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "drop database ${MYSQL_DATABASE};"
 sudo sudo mysql -h${MYSQL_SERVER_IP} --port=${MYSQL_SERVER_PORT} -u ${MYSQL_USER} -p${MYSQL_PASSWORD} -e "create database ${MYSQL_DATABASE};" || exit 1
 echo "mysql database is created"
 sudo mkdir -p /var/log/energy_saving || exit 1

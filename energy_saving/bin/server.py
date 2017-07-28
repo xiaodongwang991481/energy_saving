@@ -14,9 +14,7 @@ from energy_saving.api import api
 
 def main():
     application = api.init()
-    application.run(
-        host='0.0.0.0', port=CONF.server_port
-    )
+    api.run_server()
 
 
 if __name__ == '__main__':

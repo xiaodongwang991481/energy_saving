@@ -955,13 +955,13 @@ def import_timeseries(datacenter, device_type):
     column_name_as_timestamp = bool(
         args.get(
             'column_name_as_timestamp',
-            CONF.timeseries_exporT_timestamp_as_column
+            CONF.timeseries_export_timestamp_as_column
         )
     )
     column_name_as_measurement = bool(
         args.get(
             'column_name_as_measurement',
-            CONF.timeseries.export_measurement_as_column
+            CONF.timeseries_export_measurement_as_column
         )
     )
     column_name_as_device = bool(
@@ -1484,9 +1484,13 @@ def init(argv=None):
     return app
 
 
-if __name__ == '__main__':
-    init()
+def run_server():
     app.run(
         host='0.0.0.0', port=CONF.server_port,
         debug=CONF.server_debug
     )
+
+
+if __name__ == '__main__':
+    init()
+    run_server()
