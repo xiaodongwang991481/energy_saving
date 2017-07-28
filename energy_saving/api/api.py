@@ -58,7 +58,7 @@ opts = [
     cfg.ListOpt(
         'timeseries_ignorable_values',
         help='timeseries ignorable values when import',
-        default=settings.IGNORABLE_INFLUX_VALUE
+        default=settings.IGNORABLE_INFLUX_VALUES
     ),
     cfg.StrOpt(
         'timeseries_export_timestamp_column',
