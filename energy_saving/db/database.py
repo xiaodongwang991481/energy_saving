@@ -448,7 +448,7 @@ def convert_timeseries_value(
     except Exception as error:
         logger.exception(error)
         logger.error(
-            'failed to convert %s to %s: %s',
+            'failed to convert %r to %s: %s',
             value, value_type, error
         )
         if raise_exception:

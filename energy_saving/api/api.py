@@ -302,6 +302,7 @@ def _get_metadata():
 
 @app.route("/metadata/timeseries/models", methods=['GET'])
 def list_timeseries_models():
+    logging.debug('list timeseries models')
     result = _get_metadata()
     return utils.make_json_response(
         200, result
@@ -1018,9 +1019,9 @@ def import_timeseries(datacenter, device_type):
     logger.debug('column_key: %s', column_key)
     request_files = request.files.items(multi=True)
     if not request_files:
-            raise exception_handler.NotAcceptable(
-                'no csv file to upload'
-            )
+        raise exception_handler.NotAcceptable(
+            'no csv file to upload'
+        )
     logger.debug('upload csv files: %s', request_files)
     data = []
     column_names = set()
@@ -1043,6 +1044,7 @@ def import_timeseries(datacenter, device_type):
     logger.debug('data is loaded from csv files')
     device_type_metadata = _get_device_type_metadata(datacenter, device_type)
     logger.debug('generate influx data')
+    logger.debug('ignorable values: %s', CONF.timeseries_ignorable_values)
     for item in data:
         tags = {}
         for key, value in six.iteritems(column_name_map):
@@ -1051,6 +1053,8 @@ def import_timeseries(datacenter, device_type):
             )
             if tag_value not in CONF.timeseries_ignorable_values:
                 tags[value] = tag_value
+            # else:
+                # logger.debug('ignore column %s value %r', value, tag_value) 
         for key, value in six.iteritems(item):
             tags[column_key] = key
             measurement = tags.get('measurement', default_measurement)
@@ -1077,6 +1081,9 @@ def import_timeseries(datacenter, device_type):
             timestamp = timestamp_converter(timestamp)
             uniq_tag = (measurement, device)
             tag_timestamps = uniq_tags.setdefault(uniq_tag, {})
+            if value in CONF.timeseries_ignorable_values:
+                # logger.debug('ignore value %s', value)
+                continue
             value = _convert_timeseries_value(
                 value, measurement_metadata['attribute']['type'],
                 False
@@ -1084,9 +1091,9 @@ def import_timeseries(datacenter, device_type):
             if value is not None:
                 if import_add_seconds_same_timestamp:
                     while timestamp in tag_timestamps:
-                        logger.debug(
-                            'increase %s timestamp %s', uniq_tag, timestamp
-                        )
+                        # logger.debug(
+                        #     'increase %s timestamp %s', uniq_tag, timestamp
+                        # )
                         timestamp += import_add_seconds_same_timestamp
                 tag_timestamps[timestamp] = value
     logger.debug('influx data is generated')
