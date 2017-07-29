@@ -38,7 +38,7 @@ var config = {
                 }
             }],
         }, {
-            test: /\.(jpeg|jpg)$/,
+            test: /\.(jpeg|jpg|gif)$/,
             use: [{
                 loader: "file-loader"
             }]
@@ -105,7 +105,7 @@ var config = {
     devServer: {
         port: 9999,
         proxy: {
-            "/api": "http://10.145.89.250:8080"
+            "/api": "http://10.145.89.60:8080"
         },
         historyApiFallback: true,
 

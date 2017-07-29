@@ -1,7 +1,14 @@
 export default function reducer(state={
     list:[],
     measurement_list:[],
-    data : []
+    device_data: {
+        data: [],
+    },
+    measurement_data:{
+        data:[],
+    }
+
+
 },action){
     switch (action.type) {
         case "MODEL_GET_MODEL_LIST":
@@ -17,12 +24,12 @@ export default function reducer(state={
         case "MODEL_GET_MEASUREMENT_DATA":
             return {
                 ...state,
-                data:action.payload
+                measurement_data:action.payload
             }
         case "MODEL_DEVICE_DATA":
             return{
                 ...state,
-                data:action.payload
+                device_data:action.payload
             }
         default:
             return state;

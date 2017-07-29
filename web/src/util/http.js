@@ -2,9 +2,16 @@
  * Created by su on 6/14/17.
  */
 
+
+import axios from "axios"
+import store from "../store"
+import {changeLoadingState} from "../actions/utilAction"
+
 class Http {
     constructor(){
         this.initUrl();
+        this.initInterceptors();
+        this.requestCount = 0;
     }
 
     initUrl(){
@@ -45,6 +52,37 @@ class Http {
                 ? args[number] : match;
         });
     }
+
+    initInterceptors() {
+        let self = this;
+        axios.interceptors.request.use(function (config) {
+            self.requestCount ++;
+            if(store.getState()['util']['loading'] == false){
+                store.dispatch(changeLoadingState(true));
+            }
+            return config;
+        }, function (error) {
+            return Promise.reject(error);
+        });
+
+        axios.interceptors.response.use(function (response) {
+            self.requestCount --;
+            if(self.requestCount == 0 && store.getState()['util']['loading'] ){
+                store.dispatch(changeLoadingState(false));
+            }
+            return response;
+        }, function (error) {
+            self.requestCount --;
+            if(self.requestCount == 0 && store.getState()['util']['loading'] ){
+                store.dispatch(changeLoadingState(false));
+            }
+            return Promise.reject(error);
+        });
+    }
+
+
+
+
 }
 
 const http = new Http();
