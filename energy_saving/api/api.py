@@ -1053,8 +1053,6 @@ def import_timeseries(datacenter, device_type):
             )
             if tag_value not in CONF.timeseries_ignorable_values:
                 tags[value] = tag_value
-            # else:
-                # logger.debug('ignore column %s value %r', value, tag_value) 
         for key, value in six.iteritems(item):
             tags[column_key] = key
             measurement = tags.get('measurement', default_measurement)
@@ -1449,6 +1447,10 @@ def test_model(datacenter_name, model_type):
         assert starttime is not None
         assert endtime is not None
     test_result = _create_test_result(datacenter_name)
+    logger.debug(
+        'datacenter %s model type %s test result: %s',
+        datacenter_name, model_type, test_result
+    )
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.test_model', (
@@ -1465,7 +1467,7 @@ def test_model(datacenter_name, model_type):
             'failed to send test_model to celery'
         )
     return utils.make_json_response(
-        200, {'status': status, 'test_result': test_result}
+        200, {'status': True, 'test_result': test_result}
     )
 
 
@@ -1503,7 +1505,7 @@ def apply_model(datacenter_name, model_type):
             'failed to send apply_model to celery'
         )
     return utils.make_json_response(
-        200, {'status': status, 'prediction': prediction}
+        200, {'status': True, 'prediction': prediction}
     )
 
 

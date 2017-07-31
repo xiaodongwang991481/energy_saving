@@ -6,7 +6,8 @@ export default function reducer(state={
     },
     measurement_data:{
         data:[],
-    }
+    },
+    model_types:[]
 
 
 },action){
@@ -30,6 +31,11 @@ export default function reducer(state={
             return{
                 ...state,
                 device_data:action.payload
+            }
+        case "MODEL_GET_ALL_MODEL_TYPES":
+            return {
+                ...state,
+                model_types:action.payload
             }
         default:
             return state;

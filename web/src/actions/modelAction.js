@@ -68,3 +68,15 @@ export function cleanMeasurementData() {
         }
     };
 }
+
+
+export function getAllModelTypes(dataCenter){
+    return (dispatch)=>{
+        axios.get(http.urlFormat(http.url.MODEL_GET_ALL_MODEL_TYPES.url,dataCenter)).then(function(res){
+            dispatch(  {
+                type : "MODEL_GET_ALL_MODEL_TYPES",
+                payload: res.data
+            });
+        })
+    }
+}

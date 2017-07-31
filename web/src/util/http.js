@@ -40,6 +40,21 @@ class Http {
             },
             MODEL_EXPORT_TIME_SERIES_DATA :{
                 url : prefix + 'export/timeseries/{0}/{1}'
+            },
+            MODEL_GET_ALL_MODEL_TYPES : {
+                url : prefix + "models/{0}"
+            },
+            MODEL_BUILD_MODEL : {
+                url : prefix + "models/{0}/{1}/build"
+            },
+            MODEL_TRAIN_MODEL : {
+                url : prefix + "models/{0}/{1}/train"
+            },
+            MODEL_TEST_MODEL : {
+                url : prefix + "models/{0}/{1}/test"
+            },
+            MODEL_APPLY_MODEL : {
+                url : prefix + "models/{0}/{1}/apply"
             }
         }
     }

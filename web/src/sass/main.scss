@@ -18,9 +18,11 @@
 }
 
 .loading {
-  width: 50px;
-  height: 50px;
-  position: fixed;
-  left: calc(50vw - 25px);
-  top: calc(50vh - 25px);
+  width: 20px;
+  position: absolute;
+  left: 0px;
+}
+
+.navbar-header {
+  padding-left: 40px;
 }
