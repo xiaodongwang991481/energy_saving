@@ -231,7 +231,7 @@ class BaseModelType(object):
 
     def get_data(self, starttime=None, endtime=None, data=None):
         if not data:
-            with database.influx_session() as session:
+            with database.influx_session(dataframe=True) as session:
                 input_data = self.process_input_data(
                     self._get_data_from_timeseries(
                         session, self.input_query_template,
@@ -264,9 +264,7 @@ class BaseModelType(object):
         input_data, output_data = self.get_data(
             starttime=starttime, endtime=endtime, data=data
         )
-        processed_input_data = self.preprocess_input_data(input_data)
-        processed_output_data = self.preprocess_output_data(output_data)
-        self.model.test(processed_input_data, processed_output_data)
+        self.model.test(input_data, output_data)
 
     def is_built(self):
         if not self.built:

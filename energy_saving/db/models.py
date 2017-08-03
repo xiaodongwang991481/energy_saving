@@ -38,6 +38,7 @@ class AttrMixin(object):
     differentiation_max = Column(Float())
     differentiation_min = Column(Float())
     possible_values = Column(JSON)
+    measurement_pattern = Column(String(256))
 
 
 class ParamMixin(object):
@@ -140,14 +141,6 @@ class Datacenter(BASE, LocationMixin):
         passive_deletes=True,
         cascade='all, delete-orphan',
         backref=backref('datacenter', viewonly=True)
-    )
-    energy_optimazation_target = relationship(
-        'EnergyOptimazationTarget',
-        foreign_keys='[EnergyOptimazationTarget.datacenter_name]',
-        passive_deletes=True,
-        cascade='all, delete-orphan',
-        backref=backref('datacenter', uselist=False, viewonly=True),
-        uselist=False
     )
     predictions = relationship(
         'Prediction',
@@ -823,23 +816,6 @@ class EnvironmentSensorAttrData(BASE):
             'environment_sensor_name=%s,name=%s]'
         ) % (
             self.datacenter_name, self.environment_sensor_name, self.name
-        )
-
-
-class EnergyOptimazationTarget(BASE, AttrMixin):
-    """Energy optimazation target table."""
-    __tablename__ = 'energy_optimazation_target'
-    datacenter_name = Column(
-        String(36),
-        ForeignKey('datacenter.name', onupdate='CASCADE', ondelete='CASCADE'),
-        primary_key=True
-    )
-    name = Column(String(36), primary_key=True)
-    properties = Column(JSON)
-
-    def __str__(self):
-        return 'EnergyOptimazationTarget[datacenter_name=%s,name=%s]' % (
-            self.datacenter_name, self.name
         )
 
 

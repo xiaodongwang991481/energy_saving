@@ -1,10 +1,9 @@
 """Provider interface to manipulate database."""
 import logging
 from oslo_config import cfg
-import simplejson as json
-import six
 
 from contextlib import contextmanager
+from influxdb import DataFrameClient
 from influxdb import InfluxDBClient
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
@@ -75,6 +74,15 @@ class InfluxSession(object):
             self.influx_url, timeout=self.timeout
         )
 
+    def get_dataframe_client(self):
+        return DataFrameClient.from_DSN(
+            self.influx_url, timeout=self.timeout
+        )
+
+
+def is_dataframe_session(session):
+    return isinstance(session, DataFrameClient)
+
 
 def init(database_url=None, influx_url=None):
     """Initialize database.
@@ -125,10 +133,13 @@ def in_session():
 
 
 @contextmanager
-def influx_session():
+def influx_session(dataframe=False):
     if not INFLUX_SESSION:
         init()
-    client = INFLUX_SESSION.get_client()
+    if dataframe:
+        client = INFLUX_SESSION.get_dataframe_client()
+    else:
+        client = INFLUX_SESSION.get_client()
     logger.debug('influx session %s enter', client)
     try:
         yield client
@@ -238,240 +249,3 @@ def create_db():
 def drop_db():
     """Drop database."""
     models.BASE.metadata.drop_all(bind=ENGINE)
-
-
-COLUMN_TYPE_CONVERTER = {
-    dict: json.loads
-}
-
-
-def convert_column_value(value, value_type):
-    try:
-        if value_type in COLUMN_TYPE_CONVERTER:
-            return COLUMN_TYPE_CONVERTER[value_type](value)
-        return value_type(value)
-    except Exception as error:
-        logger.exception(error)
-        logger.error(
-            'failed to convert %s to %s: %s',
-            value, value_type, error
-        )
-        raise error
-
-
-def _get_attribute_dict(attribute):
-    return {
-        'devices': [],
-        'attribute': {
-            'type': attribute.type,
-            'unit': attribute.unit,
-            'mean': attribute.mean,
-            'deviation': attribute.deviation
-        }
-    }
-
-
-def _get_parameter_dict(parameter):
-    return {
-        'devices': [],
-        'attribute': {
-            'type': parameter.type,
-            'unit': parameter.unit,
-            'min': parameter.min,
-            'max': parameter.max
-        }
-    }
-
-
-def get_sensor_attributes(datacenter):
-    result = {}
-    for attribute in datacenter.sensor_attributes:
-        result[attribute.name] = _get_attribute_dict(attribute)
-        attribute_data = result[attribute.name]['devices']
-        for data in attribute.attribute_data:
-            attribute_data.append(data.sensor_name)
-    return result
-
-
-def get_controller_attributes(datacenter):
-    result = {}
-    for attribute in datacenter.controller_attributes:
-        result[attribute.name] = _get_attribute_dict(attribute)
-        attribute_data = result[attribute.name]['devices']
-        for data in attribute.attribute_data:
-            attribute_data.append(data.controller_name)
-    return result
-
-
-def get_power_supply_attributes(datacenter):
-    result = {}
-    for attribute in datacenter.power_supply_attributes:
-        result[attribute.name] = _get_attribute_dict(attribute)
-        attribute_data = result[attribute.name]['devices']
-        for data in attribute.attribute_data:
-            attribute_data.append(data.power_supply_name)
-    return result
-
-
-def get_controller_power_supply_attributes(datacenter):
-    result = {}
-    for attribute in datacenter.controller_power_supply_attributes:
-        result[attribute.name] = _get_attribute_dict(attribute)
-        attribute_data = result[attribute.name]['devices']
-        for data in attribute.attribute_data:
-            attribute_data.append(data.controller_power_supply_name)
-    return result
-
-
-def get_environment_sensor_attributes(datacenter):
-    result = {}
-    for attribute in datacenter.environment_sensor_attributes:
-        result[attribute.name] = _get_attribute_dict(attribute)
-        attribute_data = result[attribute.name]['devices']
-        for data in attribute.attribute_data:
-            attribute_data.append(data.environment_sensor_name)
-    return result
-
-
-def get_controller_parameters(datacenter):
-    result = {}
-    for parameter in datacenter.controller_parameters:
-        result[parameter.name] = _get_parameter_dict(parameter)
-        parameter_data = result[parameter.name]['devices']
-        for data in parameter.parameter_data:
-            parameter_data.append(data.controller_name)
-    return result
-
-
-DEVICE_TYPE_METADATA_GETTERS = {
-    'sensor_attribute': get_sensor_attributes,
-    'controller_attribute': get_controller_attributes,
-    'controller_parameter': get_controller_parameters,
-    'power_supply_attribute': get_power_supply_attributes,
-    'controller_power_supply_attribute': (
-        get_controller_power_supply_attributes
-    ),
-    'environment_sensor_attribute': get_environment_sensor_attributes
-}
-
-
-def _get_datacenter_device_type_metadata(datacenter, device_type):
-    if device_type not in DEVICE_TYPE_METADATA_GETTERS:
-        raise exception.RecordNotExists(
-            'device type %s does not exist' % device_type
-        )
-    return DEVICE_TYPE_METADATA_GETTERS[device_type](datacenter)
-
-
-def get_datacenter_device_type_metadata(
-    session, datacenter_name, device_type
-):
-    datacenter = session.query(
-        models.Datacenter
-    ).filter_by(name=datacenter_name).first()
-    if not datacenter:
-        raise exception.RecordNotExists(
-            'datacener %s does not exist' % datacenter_name
-        )
-    device_type_metadata = _get_datacenter_device_type_metadata(
-        datacenter, device_type
-    )
-    logger.debug(
-        'datacenter %s device type %s metadata: %s',
-        datacenter_name, device_type, device_type_metadata
-    )
-    return device_type_metadata
-
-
-def get_device_type_meatadata_from_datacenter_meatadata(
-    datacenter_metadata, device_type
-):
-    return datacenter_metadata['device_types'][device_type]
-
-
-def _get_datacenter_metadata(datacenter):
-    result = {}
-    for key, value in six.iteritems(DEVICE_TYPE_METADATA_GETTERS):
-        result[key] = value(datacenter)
-    return {
-        'time_interval': datacenter.time_interval,
-        'models': datacenter.models,
-        'properties': datacenter.properties,
-        'device_types': result
-    }
-
-
-def get_datacenter_metadata(session, datacenter_name):
-    datacenter = session.query(
-        models.Datacenter
-    ).filter_by(name=datacenter_name).first()
-    if not datacenter:
-        raise exception.RecordNotExists(
-            'datacener %s does not exist' % datacenter_name
-        )
-    datacenter_metadata = _get_datacenter_metadata(datacenter)
-    logger.debug(
-        'datacenter %s metadata: %s',
-        datacenter_name, datacenter_metadata
-    )
-    return datacenter_metadata
-
-
-def get_datacenter_metadata_from_metadata(metadata, datacenter_name):
-    return metadata[datacenter_name]
-
-
-def get_metadata(session):
-    result = {}
-    datacenters = session.query(models.Datacenter)
-    for datacenter in datacenters:
-        result[datacenter.name] = (
-            _get_datacenter_metadata(datacenter)
-        )
-    return result
-
-TIMESERIES_VALUE_CONVERTERS = {
-    'binary': bool,
-    'continuous': float,
-    'integer': int,
-}
-
-
-def convert_timeseries_value(
-    value, value_type, raise_exception=False
-):
-    try:
-        if value_type in TIMESERIES_VALUE_CONVERTERS:
-            return TIMESERIES_VALUE_CONVERTERS[value_type](value)
-        else:
-            return value
-    except Exception as error:
-        logger.exception(error)
-        logger.error(
-            'failed to convert %r to %s: %s',
-            value, value_type, error
-        )
-        if raise_exception:
-            raise error
-        else:
-            return None
-
-
-TIMESERIES_VALUE_FORMATTERS = {
-    'continuous': lambda x: round(x, 2),
-}
-
-
-def format_timeseries_value(
-    value, value_type
-):
-    try:
-        if value_type in TIMESERIES_VALUE_FORMATTERS:
-            return TIMESERIES_VALUE_FORMATTERS[value_type](value)
-        return value
-    except Exception as error:
-        logger.error(
-            'failed to format %s in %s: %s',
-            value, value_type, error
-        )
-        raise error

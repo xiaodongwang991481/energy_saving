@@ -1,9 +1,4 @@
 datacenter_name,controller_power_supply_name,name
-openlab,2AT3-B,power
-openlab,2AT4-B,power
-openlab,2AT5-B,power
-openlab,2AT6-B,power
-openlab,2AT7-B,power
 openlab,2AK1-B,power
 openlab,2AK2-B,power
 openlab,2AK3-B,power
