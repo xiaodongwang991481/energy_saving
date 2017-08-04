@@ -9,6 +9,9 @@ import ShowData from "../components/show-data"
 import {connect} from "react-redux"
 import Action from "../components/action"
 import TimeSelectDialog from "../components/element/timeSelectDialog"
+import DeviceTypeDetail from "../components/deviceTypeDetail"
+import MeasurementDetail from "../components/measurementDetail"
+import DeviceDetail from "../components/deviceDetail"
 
 const loadingImage = require("../images/loading.gif");
 
@@ -54,7 +57,9 @@ export default class NormalLayout extends React.Component {
                     </Nav>
                 </Navbar>
                 <Switch>
-                    <Route path="/show-data/:data_center/:device_type/:measurement/:device?" component={ShowData}/>
+                    <Route path="/show-data/:data_center/:device_type/:measurement?/:device?" component={ShowData}/>
+                    {/*<Route path="/show-data/:data_center/:device_type/" component={DeviceTypeDetail}/>*/}
+                    {/*<Route path="/show-data/:data_center/:device_type/measurement" component={MeasurementDetail}/>*/}
 
                     <div className="container">
                         <Row>
@@ -68,8 +73,6 @@ export default class NormalLayout extends React.Component {
                     </div>
                     <Route component={NotFound}/>
                 </Switch>
-
-
             </div>
         )
     }

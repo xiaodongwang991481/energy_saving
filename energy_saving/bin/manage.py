@@ -31,7 +31,7 @@ def list_config():
 @app_manager.command
 def generate_controller(datacenter):
     controller_prefix = 'CRAC'
-    csv_header = ["location","datacenter_name","name","properties"]
+    csv_header = ["location", "datacenter_name", "name", "properties"]
     string_buffer = StringIO.StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
@@ -46,11 +46,11 @@ def generate_controller(datacenter):
 @app_manager.command
 def generate_sensor(datacenter):
     sensor_prefix = 'TH'
-    csv_header = ["location","datacenter_name","name","properties"]
+    csv_header = ["location", "datacenter_name", "name", "properties"]
     string_buffer = StringIO.StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
-    for i in range(1, 48):
+    for i in range(1, 41):
         output.append([
             '{}', datacenter,
             '%s%s' % (sensor_prefix, format(i, '02d')), '{}'
@@ -61,22 +61,37 @@ def generate_sensor(datacenter):
 
 @app_manager.command
 def generate_power_supply(datacenter):
-    power_supply_prefixes = {'2AK': range(1,4), '2AT': range(3,8)}
-    power_supply_suffix = '-B'
-    csv_header = ["location","datacenter_name","name","properties"]
+    power_supply_prefix = 'PDF'
+    csv_header = ["location", "datacenter_name", "name", "properties"]
     string_buffer = StringIO.StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
-    for prefix, items in six.iteritems(power_supply_prefixes):
-        for item in items:
-            output.append([
-                '{}', datacenter,
-                '%s%d%s' % (prefix, item, power_supply_suffix),
-                '{}'
-            ])
+    for i in range(1, 21):
+        output.append([
+            '{}', datacenter,
+            '%s%d' % (power_supply_prefix, i),
+            '{}'
+        ])
     writer.writerows(output)
     print string_buffer.getvalue()
 
+
+@app_manager.command
+def generate_controller_power_supply(datacenter):
+    power_supply_prefix = '2AK'
+    power_supply_suffix = '-B'
+    csv_header = ["location", "datacenter_name", "name", "properties"]
+    string_buffer = StringIO.StringIO()
+    writer = csv.writer(string_buffer)
+    output = [csv_header]
+    for i in range(1, 4):
+        output.append([
+            '{}', datacenter,
+            '%s%d%s' % (power_supply_prefix, i, power_supply_suffix),
+            '{}'
+        ])
+    writer.writerows(output)
+    print string_buffer.getvalue()
 
 
 def _get_field_values(filename, field_name):
@@ -99,7 +114,7 @@ def _get_field_values(filename, field_name):
 def generate_controller_attribute_data(
     datacenter, controller_filename, controller_attribute_filename
 ):
-    csv_header = ["datacenter_name","controller_name","name"]
+    csv_header = ["datacenter_name", "controller_name", "name"]
     string_buffer = StringIO.StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
@@ -111,7 +126,28 @@ def generate_controller_attribute_data(
         for controller_attribute_name in controller_attribute_names:
             output.append([
                 datacenter, controller_name, controller_attribute_name
-            ])            
+            ])
+    writer.writerows(output)
+    print string_buffer.getvalue()
+
+
+@app_manager.command
+def generate_controller_parameter_data(
+    datacenter, controller_filename, controller_parameter_filename
+):
+    csv_header = ["datacenter_name", "controller_name", "name"]
+    string_buffer = StringIO.StringIO()
+    writer = csv.writer(string_buffer)
+    output = [csv_header]
+    controller_names = _get_field_values(controller_filename, 'name')
+    controller_parameter_names = _get_field_values(
+        controller_parameter_filename, 'name'
+    )
+    for controller_name in controller_names:
+        for controller_parameter_name in controller_parameter_names:
+            output.append([
+                datacenter, controller_name, controller_parameter_name
+            ])
     writer.writerows(output)
     print string_buffer.getvalue()
 
@@ -120,7 +156,7 @@ def generate_controller_attribute_data(
 def generate_sensor_attribute_data(
     datacenter, sensor_filename, sensor_attribute_filename
 ):
-    csv_header = ["datacenter_name","sensor_name","name"]
+    csv_header = ["datacenter_name", "sensor_name", "name"]
     string_buffer = StringIO.StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
@@ -132,7 +168,7 @@ def generate_sensor_attribute_data(
         for sensor_attribute_name in sensor_attribute_names:
             output.append([
                 datacenter, sensor_name, sensor_attribute_name
-            ])            
+            ])
     writer.writerows(output)
     print string_buffer.getvalue()
 
@@ -141,7 +177,7 @@ def generate_sensor_attribute_data(
 def generate_power_supply_attribute_data(
     datacenter, power_supply_filename, power_supply_attribute_filename
 ):
-    csv_header = ["datacenter_name","power_supply_name","name"]
+    csv_header = ["datacenter_name", "power_supply_name", "name"]
     string_buffer = StringIO.StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
@@ -153,7 +189,34 @@ def generate_power_supply_attribute_data(
         for power_supply_attribute_name in power_supply_attribute_names:
             output.append([
                 datacenter, power_supply_name, power_supply_attribute_name
-            ])            
+            ])
+    writer.writerows(output)
+    print string_buffer.getvalue()
+
+
+@app_manager.command
+def generate_controller_power_supply_attribute_data(
+    datacenter, controller_power_supply_filename,
+    controller_power_supply_attribute_filename
+):
+    csv_header = ["datacenter_name", "power_supply_name", "name"]
+    string_buffer = StringIO.StringIO()
+    writer = csv.writer(string_buffer)
+    output = [csv_header]
+    controller_power_supply_names = _get_field_values(
+        controller_power_supply_filename, 'name'
+    )
+    controller_power_supply_attribute_names = _get_field_values(
+        controller_power_supply_attribute_filename, 'name'
+    )
+    for controller_power_supply_name in controller_power_supply_names:
+        for controller_power_supply_attribute_name in (
+            controller_power_supply_attribute_names
+        ):
+            output.append([
+                datacenter, controller_power_supply_name,
+                controller_power_supply_attribute_name
+            ])
     writer.writerows(output)
     print string_buffer.getvalue()
 

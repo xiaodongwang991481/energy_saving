@@ -1,6 +1,7 @@
 """Database model"""
 import logging
 from oslo_utils import uuidutils
+import simplejson as json
 
 from sqlalchemy import Column
 from sqlalchemy import Enum
@@ -17,6 +18,23 @@ from sqlalchemy import String
 
 BASE = declarative_base()
 logger = logging.getLogger(__name__)
+COLUMN_TYPE_CONVERTER = {
+    dict: json.loads
+}
+
+
+def convert_column_value(value, value_type):
+    try:
+        if value_type in COLUMN_TYPE_CONVERTER:
+            return COLUMN_TYPE_CONVERTER[value_type](value)
+        return value_type(value)
+    except Exception as error:
+        logger.exception(error)
+        logger.error(
+            'failed to convert %s to %s: %s',
+            value, value_type, error
+        )
+        raise error
 
 
 class LocationMixin(object):

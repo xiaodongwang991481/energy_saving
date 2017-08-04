@@ -13,7 +13,7 @@ from energy_saving.api import api
 
 
 def main():
-    application = api.init()
+    api.init()
     api.run_server()
 
 

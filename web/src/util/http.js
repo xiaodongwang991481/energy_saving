@@ -29,17 +29,26 @@ class Http {
             MODEL_GET_MEASUREMENT_LIST:{
                 url : prefix + 'metadata/timeseries/models'
             },
+            MODEL_GET_DEVICE_TYPE_DATA:{
+                url : prefix + "timeseries/{0}/{1}"
+            },
             MODEL_GET_MEASUREMENT_DATA:{
                 url : prefix + 'timeseries/{0}/{1}/{2}'
             },
             MODEL_GET_DEVICE_DATA:{
                 url : prefix + 'timeseries/{0}/{1}/{2}/{3}'
             },
-            MODEL_IMPORT_TIME_SERIES_DATA:{
+            MODEL_IMPORT_DEVICE_TYPE_DATA:{
                 url : prefix + 'import/timeseries/{0}/{1}'
             },
-            MODEL_EXPORT_TIME_SERIES_DATA :{
+            MODEL_EXPORT_DEVICE_TYPE_DATA:{
                 url : prefix + 'export/timeseries/{0}/{1}'
+            },
+            MODEL_IMPORT_MEASUREMENT_DATA:{
+                url : prefix + 'import/timeseries/{0}/{1}/{2}'
+            },
+            MODEL_EXPORT_MEASUREMENT_DATA:{
+                url : prefix + 'export/timeseries/{0}/{1}/{2}'
             },
             MODEL_GET_ALL_MODEL_TYPES : {
                 url : prefix + "models/{0}"
@@ -87,6 +96,7 @@ class Http {
             }
             return response;
         }, function (error) {
+            window.alert(JSON.stringify(error,"",2));
             self.requestCount --;
             if(self.requestCount == 0 && store.getState()['util']['loading'] ){
                 store.dispatch(changeLoadingState(false));

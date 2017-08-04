@@ -1,6 +1,7 @@
 """Define all the RestfulAPI entry points."""
 import csv
 import logging
+import re
 import simplejson as json
 import six
 import StringIO
@@ -342,7 +343,7 @@ def upload_model(model_name):
                 row_data = {}
                 for key, value in six.iteritems(row):
                     if value:
-                        row_data[key] = database.convert_column_value(
+                        row_data[key] = models.convert_column_value(
                             value, field_mapping[key]
                         )
                 data.append(row_data)
@@ -368,7 +369,7 @@ def upload_model(model_name):
 
 
 @app.route("/timeseries/<datacenter>/<device_type>", methods=['GET'])
-def list_device_type_timeseries(datacenter, device_type):
+def list_timeseries(datacenter, device_type):
     data = _get_request_args(as_list={
         'group_by': True,
         'order_by': True,
@@ -386,6 +387,7 @@ def list_device_type_timeseries(datacenter, device_type):
     measurements = data.get('measurement') or device_type_metadata.keys()
     for measurement in measurements:
         assert measurement in device_type_metadata
+    outputs = {}
     response = {}
     with database.influx_session() as session:
         response = timeseries.list_timeseries(
@@ -410,14 +412,22 @@ def list_device_type_timeseries(datacenter, device_type):
                     device_type_metadata
                 )
             },
-            timeseries.timeseries_device_type_formatter,
-            time_precision
+            time_precision=time_precision,
+            measurement_patterns={
+                measurement: measurement_metadata['attribute']['pattern']
+                for measurement, measurement_metadata in six.iteritems(
+                    device_type_metadata
+                ) if measurement_metadata['attribute']['pattern']
+            }
         )
         for measurement, measurement_response in six.iteritems(response):
-            for device in measurement_response:
-                assert device in device_type_metadata[measurement]['devices']
+            measurement_outputs = {}
+            outputs[measurement] = measurement_outputs
+            for device, device_response in six.iteritems(measurement_response):
+                if device in device_type_metadata[measurement]['devices']:
+                    measurement_outputs[device] = device_response
     return utils.make_json_response(
-        200, response
+        200, outputs
     )
 
 
@@ -442,6 +452,7 @@ def list_measurement_timeseries(datacenter, device_type, measurement):
         )
     assert measurement in device_type_metadata
     measurement_metadata = device_type_metadata[measurement]
+    outputs = {}
     with database.influx_session() as session:
         response = timeseries.list_measurement_timeseries(
             session, measurement, {
@@ -460,12 +471,14 @@ def list_measurement_timeseries(datacenter, device_type, measurement):
                 'offset': data.get('offset')
             },
             measurement_metadata['attribute']['type'],
-            time_precision
+            time_precision=time_precision,
+            measurement_pattern=measurement_metadata['attribute']['pattern']
         )
-        for device in response:
-            assert device in measurement_metadata['devices']
+        for device, device_data in six.iteritems(response):
+            if device in measurement_metadata['devices']:
+                outputs[device] = device_data
     return utils.make_json_response(
-        200, response
+        200, outputs
     )
 
 
@@ -508,7 +521,8 @@ def list_device_timeseries(datacenter, device_type, measurement, device):
                 'offset': data.get('offset')
             },
             measurement_metadata['attribute']['type'],
-            time_precision
+            time_precision=time_precision,
+            measurement_pattern=measurement_metadata['attribute']['pattern']
         )
     return utils.make_json_response(
         200, response
@@ -583,11 +597,12 @@ def export_timeseries(datacenter, device_type):
     for i, column_name in enumerate(column_names):
         column_index[column_name] = i
     logger.debug('column_index: %s', column_index)
-    timestamps = set()
-    data = {}
     time_precision = (
         args.get('time_precision') or
         CONF.timeseries_time_precision
+    )
+    timestamp_formatter = timeseries.get_timestamp_formatter(
+        time_precision
     )
     with database.influx_session() as session:
         response = timeseries.list_timeseries(
@@ -612,11 +627,21 @@ def export_timeseries(datacenter, device_type):
                     device_type_metadata
                 )
             },
-            time_precision
+            time_precision=time_precision,
+            measurement_patterns={
+                measurement: measurement_metadata['attribute']['pattern']
+                for measurement, measurement_metadata in six.iteritems(
+                    device_type_metadata
+                ) if measurement_metadata['attribute']['pattern']
+            },
+            convert_timestamp=True,
+            format_timestamp=False
         )
-        for measurement, measurement_data in six.iteritems(response):
-            for device, device_data in six.iteritems(measurement_data):
-                assert device in device_type_metadata[measurement]['devices']
+    timestamps = set()
+    data = {}
+    for measurement, measurement_data in six.iteritems(response):
+        for device, device_data in six.iteritems(measurement_data):
+            if device in device_type_metadata[measurement]['devices']:
                 data[(measurement, device)] = device_data
                 for timestamp, value in six.iteritems(device_data):
                     timestamps.add(timestamp)
@@ -640,7 +665,7 @@ def export_timeseries(datacenter, device_type):
                 (timestamp, row_name),
                 default_row[:]
             )
-            row[0] = timestamp
+            row[0] = timestamp_formatter(timestamp)
             row[1] = column_name
             row[column_index[row_name]] = value
     export_keys = rows.keys()
@@ -707,11 +732,12 @@ def export_measurement_timeseries(datacenter, device_type, measurement):
         column_index[column_name] = i
     columns = len(column_names)
     logger.debug('column_index: %s', column_index)
-    timestamps = set()
-    data = {}
     time_precision = (
         args.get('time_precision') or
         CONF.timeseries_time_precision
+    )
+    timestamp_formatter = timeseries.get_timestamp_formatter(
+        time_precision
     )
     with database.influx_session() as session:
         response = timeseries.list_measurement_timeseries(
@@ -731,10 +757,15 @@ def export_measurement_timeseries(datacenter, device_type, measurement):
                 'offset': args.get('offset')
             },
             measurement_metadata['attribute']['type'],
-            time_precision
+            time_precision=time_precision,
+            measurement_pattern=measurement_metadata['attribute']['pattern'],
+            convert_timestamp=True,
+            format_timestamp=False
         )
-        for device, device_data in six.iteritems(response):
-            assert device in measurement_metadata['devices']
+    timestamps = set()
+    data = {}
+    for device, device_data in six.iteritems(response):
+        if device in measurement_metadata['devices']:
             data[device] = device_data
             for timestamp, value in six.iteritems(device_data):
                 timestamps.add(timestamp)
@@ -749,7 +780,7 @@ def export_measurement_timeseries(datacenter, device_type, measurement):
                 timestamp,
                 default_row[:]
             )
-            row[0] = timestamp
+            row[0] = timestamp_formatter(timestamp)
             row[column_index[device]] = value
     output = []
     output.append(column_names)
@@ -812,7 +843,6 @@ def import_timeseries(datacenter, device_type):
         CONF.timeseries_time_precision
     )
     timestamp_converter = timeseries.get_timestamp_converter(time_precision)
-    timestamp_formatter = timeseries.get_timestamp_formatter(time_precision)
     logger.debug('time precision: %s', time_precision)
     import_add_seconds_same_timestamp = timeseries.get_timedelta(
         time_precision, import_add_seconds_same_timestamp
@@ -844,49 +874,65 @@ def import_timeseries(datacenter, device_type):
     logger.debug('generate influx data')
     logger.debug('ignorable values: %s', CONF.timeseries_ignorable_values)
     inputs = {}
+    measurement_patterns = {
+        measurement: measurement_metadata['attribute']['pattern']
+        for measurement, measurement_metadata in six.iteritems(
+            device_type_metadata
+        ) if measurement_metadata['attribute']['pattern']
+    }
+    unit_converters = {
+    }
+    for measurement in device_type_metadata:
+        unit_converter = args.get('%s_unit_converter' % measurement)
+        if unit_converter:
+            unit_converters[measurement] = unit_converter
     for item in data:
         tags = {}
         for key, value in six.iteritems(column_name_map):
             tag_value = item.pop(
                 key, CONF.timeseries_default_value
             )
-            if tag_value not in CONF.timeseries_ignorable_values:
-                tags[value] = tag_value
-            else:
+            if tag_value in CONF.timeseries_ignorable_values:
                 continue
+            tags[value] = tag_value
+        timestamp = timestamp_converter(tags['time'])
         for key, value in six.iteritems(item):
             if key not in CONF.timeseries_ignorable_values:
                 tags[column_key] = key
             else:
                 continue
             measurement = tags['measurement']
-            timestamp = tags['time']
             device = tags['device']
-            if measurement not in device_type_metadata:
-                raise exception_handler.ItemNotFound(
+            real_measurement = measurement
+            if measurement_patterns:
+                for try_measurement, pattern in six.iteritems(
+                    measurement_patterns
+                ):
+                    if re.match(r'^%s$' % pattern, try_measurement):
+                        real_measurement = try_measurement
+            if real_measurement not in device_type_metadata:
+                logger.debug(
                     'measurement %s does not found '
-                    'in datacenter %s device type %s' % (
-                        measurement, datacenter, device_type
-                    )
+                    'in datacenter %s device type %s',
+                    measurement, datacenter, device_type
                 )
-            measurement_metadata = device_type_metadata[measurement]
+                continue
+            measurement_metadata = device_type_metadata[real_measurement]
             if device not in measurement_metadata['devices']:
-                raise exception_handler.ItemNotFound(
+                logger.debug(
                     'device %s does not found '
-                    'in datacenter %s device type %s measurement %s' % (
-                        device, datacenter, device_type, measurement
-                    )
+                    'in datacenter %s device type %s measurement %s',
+                    device, datacenter, device_type, measurement
                 )
+                continue
             tag_timestamps = inputs.setdefault(
-                measurement, {}
-            ).setdefault(device, {})
+                (measurement, device), {}
+            )
             if value in CONF.timeseries_ignorable_values:
                 continue
             if import_add_seconds_same_timestamp:
                 while timestamp in tag_timestamps:
-                    timestamp = timestamp_converter(timestamp)
                     timestamp += import_add_seconds_same_timestamp
-                    timestamp = timestamp_formatter(timestamp)
             tag_timestamps[timestamp] = value
     logger.debug('influx data is generated')
     tags = {
@@ -903,8 +949,11 @@ def import_timeseries(datacenter, device_type):
                     device_type_metadata
                 )
             },
-            tags,
-            time_precision
+            tags=tags,
+            time_precision=time_precision,
+            measurement_patterns=measurement_patterns,
+            convert_timestamp=False,
+            unit_converters=unit_converters
         )
     logger.debug('influx data is written')
     if not status:
@@ -946,11 +995,11 @@ def import_measurement_timeseries(datacenter, device_type, measurement):
         CONF.timeseries_time_precision
     )
     timestamp_converter = timeseries.get_timestamp_converter(time_precision)
-    timestamp_formatter = timeseries.get_timestamp_formatter(time_precision)
     logger.debug('time precision: %s', time_precision)
     import_add_seconds_same_timestamp = timeseries.get_timedelta(
         time_precision, import_add_seconds_same_timestamp
     )
+    unit_converter = args.get('unit_converter')
     with database.session() as session:
         device_type_metadata = timeseries.get_datacenter_device_type_metadata(
             session, datacenter, device_type
@@ -990,28 +1039,24 @@ def import_measurement_timeseries(datacenter, device_type, measurement):
         tag_value = item.pop(
             timestamp_column, CONF.timeseries_default_value
         )
-        if tag_value not in CONF.timeseries_ignorable_values:
-            timestamp = tag_value
-        else:
+        if tag_value in CONF.timeseries_ignorable_values:
             continue
+        timestamp = timestamp_converter(tag_value)
         for device, value in six.iteritems(item):
             if device in CONF.timeseries_ignorable_values:
                 continue
             if device not in measurement_metadata['devices']:
-                raise exception_handler.ItemNotFound(
+                logger.debug(
                     'device %s does not found '
-                    'in datacenter %s device type %s measurement %s' % (
-                        device, datacenter, device_type, measurement
-                    )
+                    'in datacenter %s device type %s measurement %s',
+                    device, datacenter, device_type, measurement
                 )
             tag_timestamps = inputs.setdefault(device, {})
             if value in CONF.timeseries_ignorable_values:
                 continue
             if import_add_seconds_same_timestamp:
                 while timestamp in tag_timestamps:
-                    timestamp = timestamp_converter(timestamp)
                     timestamp += import_add_seconds_same_timestamp
-                    timestamp = timestamp_formatter(timestamp)
             tag_timestamps[timestamp] = value
     logger.debug('influx data is generated')
     tags = {
@@ -1025,8 +1070,11 @@ def import_measurement_timeseries(datacenter, device_type, measurement):
         status &= timeseries.create_measurement_timeseries(
             session, inputs,
             measurement_metadata['attribute']['type'],
-            tags,
-            time_precision
+            tags=tags,
+            time_precision=time_precision,
+            measurement_pattern=measurement_metadata['attribute']['pattern'],
+            convert_timestamp=False,
+            unit_converter=unit_converter
         )
     logger.debug('influx data is written')
     if not status:
@@ -1042,16 +1090,16 @@ def import_measurement_timeseries(datacenter, device_type, measurement):
 
 
 @app.route("/timeseries/<datacenter>/<device_type>", methods=['POST'])
-def create_device_type_timeseries(datacenter, device_type):
+def create_timeseries(datacenter, device_type):
     data = _get_request_data()
     logger.debug(
         'timeseries data for %s %s: %s',
         datacenter, device_type, data
     )
-    time_precision = data.pop(
+    time_precision = data.get(
         'time_precision'
     ) or CONF.timeseries_time_precision
-    tags = data.pop('tags') or {}
+    tags = data.get('tags') or {}
     tags.update({
         'datacenter': datacenter,
         'device_type': device_type
@@ -1060,21 +1108,40 @@ def create_device_type_timeseries(datacenter, device_type):
         device_type_metadata = timeseries.get_datacenter_device_type_metadata(
             datacenter, device_type
         )
+    measurement_patterns = {
+        measurement: measurement_metadata['attribute']['pattern']
+        for measurement, measurement_metadata in six.iteritems(
+            device_type_metadata
+        ) if measurement_metadata['attribute']['pattern']
+    }
+    unit_converters = data.get('unit_converts') or {}
+    write_data = {}
     for measurement, measurement_data in six.iteritems(data):
-        assert measurement in device_type_metadata
-        measurement_metadata = device_type_metadata[measurement]
-        for device in measurement_data:
-            assert device in measurement_metadata['devices']
+        real_measurement = measurement
+        if measurement_patterns:
+            for try_measurement, pattern in six.iteritems(
+                measurement_patterns
+            ):
+                if re.match(r'^%s$' % pattern, try_measurement):
+                    real_measurement = try_measurement
+                    break
+        if real_measurement in device_type_metadata:
+            measurement_metadata = device_type_metadata[real_measurement]
+            for device, device_data in six.iteritems(measurement_data):
+                if device in measurement_metadata['devices']:
+                    write_data[(measurement, device)] = device_data
     status = True
     with database.influx_session() as session:
         status &= timeseries.create_timeseries(
-            session, data, {
+            session, write_data, {
                 measurement: measurement_metadata['attribute']['type']
                 for measurement, measurement_metadata in six.iteritems(
                     device_type_metadata
                 )
             },
-            tags, time_precision
+            tags=tags, time_precision=time_precision,
+            measurement_patterns=measurement_patterns,
+            unit_converters=unit_converters
         )
     if not status:
         raise exception_handler.NotAcceptable(
@@ -1095,25 +1162,30 @@ def create_measurement_timeseries(datacenter, device_type, measurement):
         'timeseries data for %s %s %s: %s',
         datacenter, device_type, measurement, data
     )
-    time_precision = data.pop(
+    time_precision = data.get(
         'time_precision'
     ) or CONF.timeseries_time_precision
-    tags = data.pop('tags') or {}
+    tags = data.get('tags') or {}
     tags.update({
         'datacenter': datacenter,
         'device_type': device_type
     })
+    unit_converter = data.get('unit_converter')
     with database.session() as session:
         device_type_metadata = timeseries.get_datacenter_device_type_metadata(
             session, datacenter, device_type
         )
     assert measurement in device_type_metadata
     measurement_metadata = device_type_metadata[measurement]
-    for device in data:
-        assert device in measurement_metadata['devices']
+    write_data = {}
+    for device, device_data in six.iteritems(data):
+        if device in measurement_metadata['devices']:
+            write_data[device] = device_data
     status = timeseries.create_measurement_timeseries(
-        measurement, data, measurement_metadata['attribute']['type'],
-        tags, time_precision
+        measurement, write_data, measurement_metadata['attribute']['type'],
+        tags=tags, time_precision=time_precision,
+        measurement_pattern=measurement_metadata['attribute']['pattern'],
+        unit_converter=unit_converter
     )
     if not status:
         raise exception_handler.NotAcceptable(
@@ -1136,15 +1208,16 @@ def create_device_timeseries(datacenter, device_type, measurement, device):
         'timeseries data for %s %s %s %s: %s',
         datacenter, device_type, measurement, device, data
     )
-    time_precision = data.pop(
+    time_precision = data.get(
         'time_precision'
     ) or CONF.timeseries_time_precision
-    tags = data.pop('tags') or {}
+    tags = data.get('tags') or {}
     tags.update({
         'datacenter': datacenter,
         'device_type': device_type,
         'device': device
     })
+    unit_converter = data.get('unit_converter')
     with database.session() as session:
         device_type_metadata = timeseries.get_datacenter_device_type_metadata(
             session, datacenter, device_type
@@ -1154,7 +1227,9 @@ def create_device_timeseries(datacenter, device_type, measurement, device):
     assert device in measurement_metadata['devices']
     status = timeseries.create_device_timeseries(
         measurement, data, measurement_metadata['attribute']['type'],
-        tags, time_precision
+        tags=tags, time_precision=time_precision,
+        measurement_pattern=measurement_metadata['attribute']['pattern'],
+        unit_converter=unit_converter
     )
     if not status:
         raise exception_handler.NotAcceptable(
@@ -1171,7 +1246,7 @@ def create_device_timeseries(datacenter, device_type, measurement, device):
     "/timeseries/<datacenter>/<device_type>",
     methods=['DELETE']
 )
-def delete_device_type_timeseries(
+def delete_timeseries(
         datacenter, device_type
 ):
     with database.session() as session:
@@ -1186,7 +1261,10 @@ def delete_device_type_timeseries(
                 session, measurement, {
                     'datacenter': datacenter,
                     'device_type': device_type
-                }
+                },
+                measurement_pattern=measurement_metadata[
+                    'attribute'
+                ]['pattern']
             )
     return utils.make_json_response(
         200, {'status': True}
@@ -1202,19 +1280,15 @@ def delete_measurement_timeseries(datacenter, device_type, measurement):
         device_type_metadata = timeseries.get_datacenter_device_type_metadata(
             session, datacenter, device_type
         )
-    if measurement not in device_type_metadata:
-        raise exception_handler.ItemNotFound(
-            'measurement %s does not found '
-            'in datacenter %s device type %s' % (
-                measurement, datacenter, device_type
-            )
-        )
+    assert measurement in device_type_metadata
+    measurement_metadata = device_type_metadata[measurement]
     with database.influx_session() as session:
         timeseries.delete_timeseries(
             session, measurement, {
                 'datacenter': datacenter,
                 'device_type': device_type
-            }
+            },
+            measurement_pattern=measurement_metadata['attribute']['pattern']
         )
     return utils.make_json_response(
         200, {'status': True}
@@ -1230,28 +1304,17 @@ def delete_device_timeseries(datacenter, device_type, device, measurement):
         device_type_metadata = timeseries.get_datacenter_device_type_metadata(
             session, datacenter, device_type
         )
-    if measurement not in device_type_metadata:
-        raise exception_handler.ItemNotFound(
-            'measurement %s does not found '
-            'in datacenter %s device type %s' % (
-                measurement, datacenter, device_type
-            )
-        )
+    assert measurement in device_type_metadata
     measurement_metadata = device_type_metadata[measurement]
-    if device not in measurement_metadata['devices']:
-        raise exception_handler.ItemNotFound(
-            'device %s does not found '
-            'in datacenter %s device type %s measurement %s' % (
-                device, datacenter, device_type, measurement
-            )
-        )
+    assert device in measurement_metadata['devices']
     with database.influx_session() as session:
         timeseries.delete_timeseries(
             session, measurement, {
                 'datacenter': datacenter,
                 'device_type': device_type,
                 'device': device
-            }
+            },
+            measurement_pattern=measurement_metadata['attribute']['pattern']
         )
     return utils.make_json_response(
         200, {'status': True}

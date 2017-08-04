@@ -1,7 +1,6 @@
 import datetime
 from dateutil import parser
 import functools
-import json
 import logging
 import pandas as pd
 import re
@@ -13,23 +12,6 @@ from energy_saving.db import models
 
 
 logger = logging.getLogger(__name__)
-COLUMN_TYPE_CONVERTER = {
-    dict: json.loads
-}
-
-
-def convert_column_value(value, value_type):
-    try:
-        if value_type in COLUMN_TYPE_CONVERTER:
-            return COLUMN_TYPE_CONVERTER[value_type](value)
-        return value_type(value)
-    except Exception as error:
-        logger.exception(error)
-        logger.error(
-            'failed to convert %s to %s: %s',
-            value, value_type, error
-        )
-        raise error
 
 
 def _get_attribute_dict(attribute):
@@ -38,8 +20,7 @@ def _get_attribute_dict(attribute):
         'attribute': {
             'type': attribute.type,
             'unit': attribute.unit,
-            'mean': attribute.mean,
-            'deviation': attribute.deviation
+            'pattern': attribute.measurement_pattern
         }
     }
 
@@ -50,8 +31,6 @@ def _get_parameter_dict(parameter):
         'attribute': {
             'type': parameter.type,
             'unit': parameter.unit,
-            'min': parameter.min,
-            'max': parameter.max
         }
     }
 
@@ -231,19 +210,34 @@ def convert_timeseries_value(
             return default_value
 
 
+def continuous_format(value, base_value):
+    return round(value, 2) + (base_value or 0)
+
+
+def binary_format(value, base_value):
+    return value
+
+
+def int_format(value, base_value):
+    return value + (base_value or 0)
+
+
 TIMESERIES_VALUE_FORMATTERS = {
-    'continuous': lambda x: round(x, 2),
+    'binary': binary_format,
+    'integer': int_format,
+    'continuous': continuous_format,
 }
 
 
 def format_timeseries_value(
-    value, value_type, raise_exception=False, default_value=None
+    value, value_type, raise_exception=False, default_value=None,
+    base_value=0
 ):
     if value is None:
         return None
     try:
         if value_type in TIMESERIES_VALUE_FORMATTERS:
-            return TIMESERIES_VALUE_FORMATTERS[value_type](value)
+            return TIMESERIES_VALUE_FORMATTERS[value_type](value, base_value)
         return value
     except Exception as error:
         logger.exception(error)
@@ -372,7 +366,7 @@ def get_timestamp_converter(time_precision, dataframe=False):
 
 def get_timestamp_formatter(time_precision, dataframe=False):
     if dataframe:
-        return pd.Timestamp
+        return str
     if not time_precision:
         return str
     else:
@@ -404,117 +398,196 @@ def get_query_from_data(measurement, data):
 
 def list_timeseries(
     session, data, device_type_types={},
-    time_precision=None
+    time_precision=None, measurement_patterns={},
+    convert_timestamp=False, format_timestamp=True
 ):
     dataframe = database.is_dataframe_session(session)
     logger.debug('timeseries data: %s', data)
     logger.debug(
-        'device_type_types %s time_precision %s dataframe %s',
-        device_type_types, time_precision, dataframe
+        'device_type_types %s time_precision %s dataframe %s '
+        'measurement_patterns convert_timestamp %s format_timestamp %s',
+        device_type_types, time_precision, dataframe,
+        measurement_patterns, convert_timestamp, format_timestamp
     )
     measurements = data.get('measurement')
+    if isinstance(measurements, basestring):
+        measurements = [measurements]
     assert measurements
-    measurement = '/^%s$/' % '|'.join(measurements)
+    patterns = []
+    for measurement in measurements:
+        measurement_pattern = measurement_patterns.get(measurement)
+        if measurement_pattern:
+            patterns.append(measurement_pattern)
+        else:
+            patterns.append(measurement)
+    measurement = r'/^(%s)$/' % '|'.join(patterns)
     query = get_query_from_data(
         measurement, data
     )
-    timestamp_formatter = get_timestamp_formatter(
-        time_precision, dataframe
-    )
+    if convert_timestamp:
+        timestamp_converter = get_timestamp_converter(
+            time_precision, dataframe
+        )
+    else:
+        timestamp_converter = None
+    if format_timestamp:
+        timestamp_formatter = get_timestamp_formatter(
+            time_precision, dataframe
+        )
+    else:
+        timestamp_formatter = None
     if dataframe:
         result = session.query(query)
     else:
         result = session.query(query, epoch=time_precision)
     return timeseries_device_type_formatter(
         result, device_type_types,
-        timestamp_formatter,
-        dataframe=dataframe
+        timestamp_converter=timestamp_converter,
+        timestamp_formatter=timestamp_formatter,
+        dataframe=dataframe,
+        measurement_patterns=measurement_patterns
     )
 
 
 def list_measurement_timeseries(
     session, measurement, data, measurement_type=None,
-    time_precision=None
+    time_precision=None, measurement_pattern=None,
+    convert_timestamp=False, format_timestamp=True
 ):
     dataframe = database.is_dataframe_session(session)
     logger.debug('timeseries %s data: %s', measurement, data)
     logger.debug(
-        'measurement_type %s time_precision %s dataframe %s',
-        measurement_type, time_precision, dataframe
+        'measurement_type %s time_precision %s dataframe %s '
+        'measurement_pattern %s convert_timestamp %s format_timestamp %s',
+        measurement_type, time_precision, dataframe,
+        measurement_pattern, convert_timestamp, format_timestamp
     )
+    if measurement_pattern:
+        pattern = r'/^%s$/' % measurement_pattern
+    else:
+        pattern = measurement
     query = get_query_from_data(
-        measurement, data
+        pattern, data
     )
-    timestamp_formatter = get_timestamp_formatter(
-        time_precision, dataframe
-    )
+    if convert_timestamp:
+        timestamp_converter = get_timestamp_converter(
+            time_precision, dataframe
+        )
+    else:
+        timestamp_converter = None
+    if format_timestamp:
+        timestamp_formatter = get_timestamp_formatter(
+            time_precision, dataframe
+        )
+    else:
+        timestamp_formatter = None
     if dataframe:
         result = session.query(query)
     else:
         result = session.query(query, epoch=time_precision)
     return timeseries_measurement_formatter(
         result, measurement_type,
-        timestamp_formatter,
-        dataframe=dataframe
+        timestamp_converter=timestamp_converter,
+        timestamp_formatter=timestamp_formatter,
+        dataframe=dataframe,
+        measurement_pattern=measurement_pattern
     )
 
 
 def list_device_timeseries(
     session, measurement, data, measurement_type=None,
-    time_precision=None
+    time_precision=None, measurement_pattern=None,
+    convert_timestamp=False, format_timestamp=True
 ):
     dataframe = database.is_dataframe_session(session)
     logger.debug('timeseries %s data: %s', measurement, data)
     logger.debug(
-        'measurement_type %s time_precision %s dataframe %s',
-        measurement_type, time_precision, dataframe
+        'measurement_type %s time_precision %s dataframe %s '
+        'measurement_pattern %s convert_timestamp %s format_timestamp %s',
+        measurement_type, time_precision, dataframe,
+        measurement_pattern, convert_timestamp, format_timestamp
     )
+    if measurement_pattern:
+        pattern = r'/^%s$/' % measurement_pattern
+    else:
+        pattern = measurement
     query = get_query_from_data(
-        measurement, data
+        pattern, data
     )
-    timestamp_formatter = get_timestamp_formatter(
-        time_precision, dataframe
-    )
+    if convert_timestamp:
+        timestamp_converter = get_timestamp_converter(
+            time_precision, dataframe
+        )
+    else:
+        timestamp_converter = None
+    if format_timestamp:
+        timestamp_formatter = get_timestamp_formatter(
+            time_precision, dataframe
+        )
+    else:
+        timestamp_formatter = None
     if dataframe:
         result = session.query(query)
     else:
         result = session.query(query, epoch=time_precision)
     return timeseries_device_formatter(
         result, measurement_type,
-        timestamp_formatter,
-        dataframe=dataframe
+        timestamp_converter=timestamp_converter,
+        timestamp_formatter=timestamp_formatter,
+        dataframe=dataframe,
+        measurement_pattern=measurement_pattern
     )
 
 
 def timeseries_device_type_formatter(
-    result, device_type_types, timestamp_formatter,
-    dataframe=False
+    result, device_type_types,
+    timestamp_converter=None, timestamp_formatter=None,
+    dataframe=False, measurement_patterns={}
 ):
     response = {}
     for key, values in result.items():
-        measurement, group_tags = key
+        measurement_got, group_tags = key
+        measurement = measurement_got
+        if measurement_patterns:
+            for try_measurement, pattern in six.iteritems(
+                measurement_patterns
+            ):
+                if re.match(r'^%s$' % pattern, measurement_got):
+                    measurement = try_measurement
+                    break
         group_tags = dict(group_tags)
         device = group_tags['device']
         device_response = {}
         measurement_type = device_type_types.get(measurement)
         if dataframe:
-            response[(measurement, device)] = device_response
+            response.setdefault((measurement, device), device_response)
             for timestamp, value in six.iteritems(dict(values['value'])):
-                timestamp = timestamp_formatter(timestamp)
+                if timestamp_formatter:
+                    timestamp = timestamp_formatter(
+                        timestamp
+                    )
                 device_response[timestamp] = format_timeseries_value(
-                    value, measurement_type
+                    value, measurement_type,
+                    base_value=device_response.get(timestamp)
                 )
         else:
             measurement_response = response.setdefault(
-                measurement, device_response
+                measurement, {}
             )
-            response[device] = measurement_response
+            measurement_response.setdefault(device, device_response)
             for item in values:
-                timestamp = timestamp_formatter(
-                    item['time']
-                )
+                timestamp = item['time']
+                if timestamp_converter:
+                    timestamp = timestamp_converter(
+                        timestamp
+                    )
+                if timestamp_formatter:
+                    timestamp = timestamp_formatter(
+                        timestamp
+                    )
                 device_response[timestamp] = format_timeseries_value(
-                    item['value'], measurement_type
+                    item['value'], measurement_type,
+                    base_value=device_response.get(timestamp)
                 )
     if dataframe:
         return pd.DataFrame(response)
@@ -523,8 +596,9 @@ def timeseries_device_type_formatter(
 
 
 def timeseries_measurement_formatter(
-    result, measurement_type, timestamp_formatter,
-    dataframe=False
+    result, measurement_type,
+    timestamp_converter=None,  timestamp_formatter=None,
+    dataframe=False, measurement_pattern=None
 ):
     response = {}
     for key, values in result.items():
@@ -532,18 +606,27 @@ def timeseries_measurement_formatter(
         group_tags = dict(group_tags)
         device = group_tags['device']
         device_response = {}
-        response[device] = device_response
+        response.setdefault(device, device_response)
         if dataframe:
             for timestamp, value in six.iteritems(dict(values['value'])):
-                timestamp = timestamp_formatter(timestamp)
+                if timestamp_formatter:
+                    timestamp = timestamp_formatter(timestamp)
                 device_response[timestamp] = format_timeseries_value(
-                    value, measurement_type
+                    value, measurement_type,
+                    base_value=device_response.get(timestamp)
                 )
         else:
             for item in values:
-                timestamp = timestamp_formatter(item['time'])
+                timestamp = item['time']
+                if timestamp_converter:
+                    timestamp = timestamp_converter(
+                        timestamp
+                    )
+                if timestamp_formatter:
+                    timestamp = timestamp_formatter(timestamp)
                 device_response[timestamp] = format_timeseries_value(
-                    item['value'], measurement_type
+                    item['value'], measurement_type,
+                    base_value=device_response.get(timestamp)
                 )
     if dataframe:
         return pd.DataFrame(response)
@@ -552,24 +635,34 @@ def timeseries_measurement_formatter(
 
 
 def timeseries_device_formatter(
-    result, measurement_type, timestamp_converter, timestamp_formatter,
-    dataframe=False
+    result, measurement_type,
+    timestamp_converter=None, timestamp_formatter=None,
+    dataframe=False, measurement_pattern=None
 ):
     response = {}
     for key, values in result.items():
         if dataframe:
             for timestamp, value in six.iteritems(dict(values['value'])):
-                timestamp = timestamp_formatter(
-                    timestamp
-                )
+                if timestamp_formatter:
+                    timestamp = timestamp_formatter(
+                        timestamp
+                    )
                 response[timestamp] = format_timeseries_value(
-                    value, measurement_type
+                    value, measurement_type,
+                    base_value=response.get(timestamp)
                 )
         else:
             for item in values:
-                timestamp = timestamp_formatter(item['time'])
+                timestamp = item['time']
+                if timestamp_converter:
+                    timestamp = timestamp_converter(
+                        timestamp
+                    )
+                if timestamp_formatter:
+                    timestamp = timestamp_formatter(timestamp)
                 response[timestamp] = format_timeseries_value(
-                    item['value'], measurement_type
+                    item['value'], measurement_type,
+                    base_value=response.get(timestamp)
                 )
     if dataframe:
         return pd.DataFrame({'value': response})
@@ -578,20 +671,37 @@ def timeseries_device_formatter(
 
 
 def generate_device_type_timeseries(
-    data, tags, device_type_types, timestamp_converter,
-    dataframe=False
+    data, tags, device_type_types,
+    timestamp_converter=None,
+    dataframe=False, measurement_patterns={},
+    unit_converters={}
 ):
     for key, device_data in six.iteritems(data):
         measurement, device = key
+        real_measurement = measurement
+        if measurement_patterns:
+            for try_measurement, pattern in six.iteritems(
+                measurement_patterns
+            ):
+                if re.match(r'^%s$' % pattern, measurement):
+                    real_measurement = try_measurement
+                    break
+        unit_converter = unit_converters.get(real_measurement)
+        if unit_converter:
+            unit_converter = get_unit_converter(unit_converter)
         generated = {}
         generated_tags = dict(tags)
         for timestamp, value in six.iteritems(device_data):
-            timestamp = timestamp_converter(timestamp)
-            value = convert_timeseries_value(
-                value, device_type_types.get(measurement),
-                False
-            )
+            if timestamp_converter:
+                timestamp = timestamp_converter(timestamp)
             if value is not None:
+                value = convert_timeseries_value(
+                    value, device_type_types.get(real_measurement),
+                    False
+                )
+            if value is not None:
+                if unit_converter:
+                    value = unit_converter(value)
                 generated[timestamp] = value
         generated_tags['measurement'] = measurement
         generated_tags['device'] = device
@@ -599,36 +709,51 @@ def generate_device_type_timeseries(
 
 
 def generate_measurement_timeseries(
-    data, tags, measurement_type, timestamp_converter,
-    dataframe=False
+    data, tags, measurement_type,
+    timestamp_converter=None,
+    dataframe=False, measurement_pattern=None,
+    unit_converter=None
 ):
+    if unit_converter:
+        unit_converter = get_unit_converter(unit_converter)
     for device, device_data in six.iteritems(data):
         generated = {}
         generated_tags = dict(tags)
         for timestamp, value in six.iteritems(device_data):
-            timestamp = timestamp_converter(timestamp)
-            value = convert_timeseries_value(
-                value, measurement_type,
-                False
-            )
+            if timestamp_converter:
+                timestamp = timestamp_converter(timestamp)
             if value is not None:
+                value = convert_timeseries_value(
+                    value, measurement_type,
+                    False
+                )
+            if value is not None:
+                if unit_converter:
+                    value = unit_converter(value)
                 generated[timestamp] = value
         generated_tags['device'] = device
         yield generated_tags, generated
 
 
 def generate_device_timeseries(
-    data, tags, measurement_type, timestamp_converter,
-    dataframe=False
+    data, tags, measurement_type, timestamp_converter=None,
+    dataframe=False, measurement_pattern=None,
+    unit_converter=None
 ):
+    if unit_converter:
+        unit_converter = get_unit_converter(unit_converter)
     generated = {}
     for timestamp, value in six.iteritems(data):
-        timestamp = timestamp_converter(timestamp)
-        value = convert_timeseries_value(
-            value, measurement_type,
-            False
-        )
+        if timestamp_converter:
+            timestamp = timestamp_converter(timestamp)
         if value is not None:
+            value = convert_timeseries_value(
+                value, measurement_type,
+                False
+            )
+        if value is not None:
+            if unit_converter:
+                value = unit_converter(value)
             generated[timestamp] = value
     yield tags, generated
 
@@ -659,21 +784,29 @@ def write_points(
 
 def create_timeseries(
     session, data, device_types_type={},
-    tags={}, time_precision=None
+    tags={}, time_precision=None, measurement_patterns={},
+    convert_timestamp=True, unit_converters={}
 ):
     dataframe = database.is_dataframe_session(session)
     logger.debug('create timeseries tags: %s', tags)
     logger.debug(
-        'device_types_type %s time_precision %s dataframe %s',
-        device_types_type, time_precision, dataframe
+        'device_types_type %s time_precision %s dataframe %s'
+        'measurement_patterns %s convert_timestamp %s unit_converters %s',
+        device_types_type, time_precision, dataframe,
+        measurement_patterns, convert_timestamp, unit_converters
     )
     status = True
-    timestamp_converter = get_timestamp_converter(
-        time_precision, dataframe
-    )
+    if convert_timestamp:
+        timestamp_converter = get_timestamp_converter(
+            time_precision, dataframe
+        )
+    else:
+        timestamp_converter = None
     for generated_tags, tag_data in generate_device_type_timeseries(
-        data, tags, device_types_type, timestamp_converter,
-        dataframe=dataframe
+        data, tags, device_types_type,
+        timestamp_converter=timestamp_converter,
+        dataframe=dataframe, measurement_patterns=measurement_patterns,
+        unit_converters=unit_converters
     ):
         measurement = generated_tags.pop('measurement')
         status &= write_points(
@@ -689,23 +822,31 @@ def create_timeseries(
 
 def create_measurement_timeseries(
     session, measurement, data, measurement_type=None,
-    tags={}, time_precision=None
+    tags={}, time_precision=None, measurement_pattern=None,
+    convert_timestamp=True, unit_converter=None
 ):
     dataframe = database.is_dataframe_session(session)
     logger.debug(
         'create measurement timeseries %s tags: %s', measurement, tags
     )
     logger.debug(
-        'measurement_type %s time_precision %s dataframe %s',
-        measurement_type, time_precision, dataframe
+        'measurement_type %s time_precision %s dataframe %s '
+        'measurement_pattern %s convert_timestamp %s unit_converter %s',
+        measurement_type, time_precision, dataframe,
+        measurement_pattern, convert_timestamp, unit_converter
     )
     status = True
-    timestamp_converter = get_timestamp_converter(
-        time_precision, dataframe
-    )
+    if convert_timestamp:
+        timestamp_converter = get_timestamp_converter(
+            time_precision, dataframe
+        )
+    else:
+        timestamp_converter = None
     for generated_tags, tag_data in generate_measurement_timeseries(
-        data, tags, measurement_type, timestamp_converter,
-        dataframe=dataframe
+        data, tags, measurement_type,
+        timestamp_converter=timestamp_converter,
+        dataframe=dataframe, measurement_pattern=measurement_pattern,
+        unit_converter=unit_converter
     ):
         status &= write_points(
             session, measurement, tag_data,
@@ -720,21 +861,29 @@ def create_measurement_timeseries(
 
 def create_device_timeseries(
     session, measurement, data, measurement_type=None,
-    tags={}, time_precision=None
+    tags={}, time_precision=None, measurement_pattern=None,
+    convert_timestamp=True, unit_converter=None
 ):
     dataframe = database.is_dataframe_session(session)
     logger.debug('create device timeseries %s tags: %s', measurement, tags)
     logger.debug(
-        'measurement_type %s time_precision %s dataframe %s',
-        measurement_type, time_precision, dataframe
+        'measurement_type %s time_precision %s dataframe %s '
+        'measurement_pattern %s convert_timestamp %s unit_converter %s',
+        measurement_type, time_precision, dataframe,
+        measurement_pattern, convert_timestamp, unit_converter
     )
     status = True
-    timestamp_converter = get_timestamp_converter(
-        time_precision, dataframe
-    )
+    if convert_timestamp:
+        timestamp_converter = get_timestamp_converter(
+            time_precision, dataframe
+        )
+    else:
+        timestamp_converter = None
     for generated_tags, tag_data in generate_device_timeseries(
-        data, tags, measurement_type, timestamp_converter,
-        dataframe=dataframe
+        data, tags, measurement_type,
+        timestamp_converter=timestamp_converter,
+        dataframe=dataframe, measurement_pattern=measurement_pattern,
+        unit_converter=unit_converter
     ):
         status &= write_points(
             session, measurement, tag_data,
@@ -748,7 +897,7 @@ def create_device_timeseries(
     return status
 
 
-def delete_timeseries(session, measurement, tags):
+def delete_timeseries(session, measurement, tags, measurement_pattern=None):
     session.delete_series(measurement=measurement, tags=tags)
 
 
@@ -766,3 +915,13 @@ def get_timedelta(time_precision, seconds):
     if not time_precision:
         return datetime.timedelta(0, seconds)
     return TIMEDELTA_MAP[time_precision](seconds)
+
+
+UNIT_CONVERTERS = {
+    'w2kw': lambda x: x / 1000,
+    'kw2w': lambda x: x * 1000
+}
+
+
+def get_unit_converter(unit_converter):
+    return UNIT_CONVERTERS[unit_converter]

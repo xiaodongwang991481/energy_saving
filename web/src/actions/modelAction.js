@@ -24,7 +24,7 @@ export function getMeasurementList() {
 export function getMeasurementData(param) {
     return (dispatch) => {
         axios.get(http.urlFormat(http.url.MODEL_GET_MEASUREMENT_DATA.url,
-                param['data_center'], param['device_type'], param['measurement']) + "?&aggregation=mean&group_by=time(" + param['aggregation'] + "s)&starttime=" + param['startDate'] + "&endtime=" + param['endDate']
+                param['data_center'], param['device_type'], param['measurement']) + "?&aggregation="+param['aggregation_type']+"&group_by=time(" + param['aggregation'] + "s)&starttime=" + param['startDate'] + "&endtime=" + param['endDate']
         ).then(function (res) {
             dispatch({
                 type: "MODEL_GET_MEASUREMENT_DATA",
@@ -39,10 +39,25 @@ export function getMeasurementData(param) {
 export function getDeviceData(param) {
     return (dispatch) => {
         axios.get(http.urlFormat(http.url.MODEL_GET_DEVICE_DATA.url,
-                param['data_center'], param['device_type'], param['measurement'], param['device']) + "?&aggregation=mean&group_by=time(" + param['aggregation'] + "s)&starttime=" + param['startDate'] + "&endtime=" + param['endDate']
+                param['data_center'], param['device_type'], param['measurement'], param['device']) + "?aggregation="+param['aggregation_type']+"&group_by=time(" + param['aggregation'] + "s)&starttime=" + param['startDate'] + "&endtime=" + param['endDate']
         ).then(function (res) {
             dispatch({
                 type: "MODEL_DEVICE_DATA",
+                payload: {
+                    data: res.data,
+                }
+            })
+        })
+    }
+}
+
+export function getDeviceTypeData(param) {
+    return (dispatch) => {
+        axios.get(http.urlFormat(http.url.MODEL_GET_DEVICE_TYPE_DATA.url,
+                param['data_center'], param['device_type'], param['measurement'], param['device']) + "?aggregation="+param['aggregation_type']+"&group_by=time(" + param['aggregation'] + "s)&starttime=" + param['startDate'] + "&endtime=" + param['endDate']
+        ).then(function (res) {
+            dispatch({
+                type: "MODEL_DEVICE_TYPE_DATA",
                 payload: {
                     data: res.data,
                 }
@@ -68,6 +83,14 @@ export function cleanMeasurementData() {
         }
     };
 }
+export function cleanDeviceTypeData(){
+    return {
+        type : "MODEL_DEVICE_TYPE_DATA",
+        payload:{
+            data:[]
+        }
+    }
+}
 
 
 export function getAllModelTypes(dataCenter){
@@ -80,3 +103,4 @@ export function getAllModelTypes(dataCenter){
         })
     }
 }
+

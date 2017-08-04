@@ -17,18 +17,18 @@ export default class MeasurementList extends React.Component {
     }
 
 
-    exportFile(dataCenter, deviceType) {
-        console.log(http.urlFormat(http.url.MODEL_EXPORT_TIME_SERIES_DATA.url, dataCenter, deviceType));
-        window.open(http.urlFormat(http.url.MODEL_EXPORT_TIME_SERIES_DATA.url, dataCenter, deviceType));
-    }
-
-    uploadFile(dataCenter, deviceType, event) {
-        var data = new FormData();
-        data.append('file', event.target.files[0]);
-        axios.post(http.urlFormat(http.url.MODEL_IMPORT_TIME_SERIES_DATA.url, dataCenter, deviceType), data).then(function (item) {
-            alert("upload success");
-        })
-    }
+    // exportFile(dataCenter, deviceType) {
+    //     console.log(http.urlFormat(http.url.MODEL_EXPORT_TIME_SERIES_DATA.url, dataCenter, deviceType));
+    //     window.open(http.urlFormat(http.url.MODEL_EXPORT_TIME_SERIES_DATA.url, dataCenter, deviceType));
+    // }
+    //
+    // uploadFile(dataCenter, deviceType, event) {
+    //     var data = new FormData();
+    //     data.append('file', event.target.files[0]);
+    //     axios.post(http.urlFormat(http.url.MODEL_IMPORT_TIME_SERIES_DATA.url, dataCenter, deviceType), data).then(function (item) {
+    //         alert("upload success");
+    //     })
+    // }
 
     componentWillMount() {
         this.props.dispatch(getMeasurementList());
@@ -49,20 +49,14 @@ export default class MeasurementList extends React.Component {
                         let deviceTypes = self.props.measurement_list[centerName]['device_types'];
                         return (
                             <div key={cIdx}>
-                                <h2>{centerName}</h2>
+                                <h2> {centerName}</h2>
                                 {
                                     Object.keys(deviceTypes)
                                         .map(function (typeName, tIdx) {
                                             let measurements = deviceTypes[typeName];
                                             return (
                                                 <div key={tIdx} className="mb-40">
-                                                    <div>{typeName}</div>
-                                                    <Button className="mt-10 mb-10 mr-10" bsStyle="success"
-                                                            onClick={self.exportFile.bind(self, centerName, typeName)}>export</Button>
-                                                    <label className="btn btn-primary mt-10 mb-10">
-                                                        Import <input type="file" className="hidden"
-                                                                      onChange={self.uploadFile.bind(this, centerName, typeName)}/>
-                                                    </label>
+                                                    <div> <Link to={"/show-data/" + centerName + "/" + typeName}>{typeName}</Link></div>
                                                     <Table striped bordered condensed hover>
                                                         <thead>
                                                         <tr>
