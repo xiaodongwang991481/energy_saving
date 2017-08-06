@@ -1,2 +1,2 @@
 type,unit,datacenter_name,name,properties
-continuous,KWh,openlab,power,{}
+continuous,kw,openlab,power,{}

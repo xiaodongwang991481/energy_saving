@@ -11,6 +11,7 @@ import six
 from oslo_config import cfg
 
 from energy_saving.db import database
+from energy_saving.db import timeseries
 from energy_saving.models import model_builder_manager
 from energy_saving.utils import settings
 from energy_saving.utils import util
@@ -30,20 +31,6 @@ manager = model_builder_manager.ModelBuilderManager()
 
 
 class BaseModelType(object):
-    QUERY_TEMPLATE = (
-        "select mean(value) as value from %(measurement)s "
-        "where device_type = '%(device_type)s' and time > %(starttime)s "
-        "and time < %(endtime)s group by time(%(time_interval)ss), device"
-    )
-
-    @property
-    def input_query_template(self):
-        return self.QUERY_TEMPLATE
-
-    @property
-    def output_query_template(self):
-        return self.QUERY_TEMPLATE
-
     def __init__(self, datacenter, builder):
         self.datacenter = datacenter
         self.builder = builder
@@ -171,51 +158,59 @@ class BaseModelType(object):
         self.save_built()
 
     def _get_data_from_timeseries(
-            self, session, query_template,
-            starttime, endtime, patterns, nodes
+            self, session,
+            starttime, endtime, nodes
     ):
-        dataframe = {}
-        params = {
-            'datacenter': self.datacenter,
-            'time_interval': self.metadata['time_interval'],
-            'starttime': starttime,
-            'endtime': endtime
-        }
-        logger.debug('query template: %s', query_template)
-        timeseries = {}
-        for pattern in patterns:
-            device_types = pattern['device_type']
-            if isinstance(device_types, basestring):
-                device_types = [device_types]
-            measurements = pattern['measurement']
-            if isinstance(measurements, basestring):
-                measurements = [measurements]
-            for device_type in device_types:
-                for measurement in measurements:
-                    params.update({
-                        'device_type': device_type,
-                        'measurement': measurement,
-                    })
-                    query = query_template % params
-                    logger.debug('query: %s', query)
-                    result = session.query(query, epoch='s')
-                    for key, value in result.items():
-                        _, group_tags = key
-                        device = group_tags['device']
-                        for item in value:
-                            timestamp = item['time']
-                            data = timeseries.setdefault(
-                                (device_type, measurement, device), {}
-                            )
-                            data[timestamp] = item['value']
-        for key, value in six.iteritems(timeseries):
-            times, values = zip(*value.items())
-            dataframe[key] = pandas.Series(values, index=times)
-        columns = [
-            (item['device_type'], item['measurement'], item['device'])
-            for item in nodes
-        ]
-        return pandas.DataFrame(dataframe, columns=columns)
+        time_interval = self.metadata['time_interval']
+        device_type_mapping = {}
+        device_type_types = {}
+        device_type_patterns = {}
+        for node in nodes:
+            device_type = node['device_type']
+            measurement = node['measurement']
+            device = node['device']
+            assert device_type in self.metadata['device_types']
+            device_type_metadata = self.metadata['device_types'][device_type]
+            assert measurement in device_type_metadata
+            measurement_metadata = device_type_metadata[measurement]
+            assert device in measurement_metadata['devices']
+            measurement_mapping = device_type_mapping.setdefault(
+                device_type, {}
+            )
+            measurement_types = device_type_types.setdefault(device_type, {})
+            devices = measurement_mapping.setdefault(measurement, [])
+            measurement_types.setdefault(
+                measurement, measurement_metadata[
+                    'attribute'
+                ]['type']
+            )
+            measurement_patterns = device_type_patterns.setdefault(
+                device_type, {}
+            )
+            measurement_pattern = measurement_metadata['attribute']['pattern']
+            if measurement_pattern:
+                measurement_patterns.setdefault(
+                    measurement, measurement_pattern
+                )
+            if device not in devices:
+                devices.append(device)
+        with database.influx_session(dataframe=True) as session:
+            response = timeseries.list_timeseries(
+                session, {
+                    'where': {
+                        'datacenter': self.datacenter,
+                        'starttime': starttime,
+                        'endtime': endtime
+                    },
+                    'group_by': ['time(%ss)' % time_interval, 'device'],
+                    'order_by': ['time', 'device'],
+                    'aggregation': 'mean',
+                    'device_type': device_type_mapping
+                }, device_type_types=device_type_types,
+                convert_timestamp=True,
+                device_type_patterns=device_type_patterns
+            )
+        return response
 
     def _get_data_direct(self, data, nodes):
         dataframe = {}
@@ -235,14 +230,14 @@ class BaseModelType(object):
                 input_data = self.process_input_data(
                     self._get_data_from_timeseries(
                         session, self.input_query_template,
-                        starttime, endtime, self.config['inputs'],
+                        starttime, endtime,
                         self.input_nodes
                     )
                 )
                 output_data = self.process_output_data(
                     self._get_data_from_timeseries(
                         session, self.output_query_template,
-                        starttime, endtime, self.config['outputs'],
+                        starttime, endtime,
                         self.output_nodes
                     )
                 )
