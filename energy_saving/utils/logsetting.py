@@ -61,8 +61,8 @@ def getLevelByName(level_name):
     return LOGLEVEL_MAPPING[level_name]
 
 
-def init(logfile):
-    """Init loggsetting. It should be called after flags.init."""
+def init(logfile=None):
+    """Init loggsetting."""
     loglevel = CONF.loglevel.lower()
     logdir = CONF.logdir
     logger = logging.getLogger()

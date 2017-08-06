@@ -8,16 +8,16 @@ import StringIO
 import six
 import sys
 
-
-current_dir = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(current_dir)
-
-
 from flask_script import Manager
 
 from energy_saving.api import api
+from energy_saving.db import database
+from energy_saving.db import timeseries
+from energy_saving.utils import logsetting
 
 
+current_dir = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(current_dir)
 app_manager = Manager(api.app, usage="Perform database operations")
 
 
@@ -221,7 +221,19 @@ def generate_controller_power_supply_attribute_data(
     print string_buffer.getvalue()
 
 
+@app_manager.command
+def update_timeseries_metadata(
+    datacenter, starttime, endtime
+):
+    with database.influx_session(dataframe=True) as session:
+        timeseries.update_timeseries_metadata(
+            session, datacenter, starttime, endtime
+        )
+
+
 def main():
+    logsetting.init()
+    database.init()
     app_manager.run()
 
 

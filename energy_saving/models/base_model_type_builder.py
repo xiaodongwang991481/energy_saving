@@ -134,7 +134,16 @@ class BaseModelType(object):
                         nodes.append({
                             'device_type': device_type,
                             'measurement':  measurement,
-                            'device': device
+                            'device': device,
+                            'unit': measurement_metadata[
+                                'attribute'
+                            ]['unit'],
+                            'mean': measurement_metadata[
+                                'attribute'
+                            ]['mean'],
+                            'deviation': measurement_metadata[
+                                'attribute'
+                            ]['deviation']
                         })
         return nodes
 

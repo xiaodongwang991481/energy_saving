@@ -2,6 +2,7 @@ import datetime
 from dateutil import parser
 import functools
 import logging
+import numpy as np
 import pandas as pd
 import re
 import six
@@ -20,9 +21,19 @@ def _get_attribute_dict(attribute):
         'attribute': {
             'type': attribute.type,
             'unit': attribute.unit,
+            'mean': attribute.mean,
+            'deviation': attribute.deviation,
             'pattern': attribute.measurement_pattern
         }
     }
+
+
+def _set_attribute_dict(attribute, data):
+    attribute_data = data['attribute']
+    if 'mean' in attribute_data:
+        attribute.mean = attribute_data['mean']
+    if 'deviation' in attribute_data:
+        attribute.deviation = attribute_data['deviation']
 
 
 def _get_parameter_dict(parameter):
@@ -31,9 +42,17 @@ def _get_parameter_dict(parameter):
         'attribute': {
             'type': parameter.type,
             'unit': parameter.unit,
+            'min': parameter.min,
+            'max': parameter.max,
+            'mean': None,
+            'deviation': None,
             'pattern': None
         }
     }
+
+
+def _set_parameter_dict(parameter, data):
+    pass
 
 
 def get_sensor_attributes(datacenter):
@@ -46,6 +65,12 @@ def get_sensor_attributes(datacenter):
     return result
 
 
+def set_sensor_attributes(datacenter, data):
+    for attribute in datacenter.sensor_attributes:
+        if attribute.name in data:
+            _set_attribute_dict(attribute, data[attribute.name])
+
+
 def get_controller_attributes(datacenter):
     result = {}
     for attribute in datacenter.controller_attributes:
@@ -54,6 +79,12 @@ def get_controller_attributes(datacenter):
         for data in attribute.attribute_data:
             attribute_data.append(data.controller_name)
     return result
+
+
+def set_controller_attributes(datacenter, data):
+    for attribute in datacenter.controller_attributes:
+        if attribute.name in data:
+            _set_attribute_dict(attribute, data[attribute.name])
 
 
 def get_power_supply_attributes(datacenter):
@@ -66,6 +97,12 @@ def get_power_supply_attributes(datacenter):
     return result
 
 
+def set_power_supply_attributes(datacenter, data):
+    for attribute in datacenter.power_supply_attributes:
+        if attribute.name in data:
+            _set_attribute_dict(attribute, data[attribute.name])
+
+
 def get_controller_power_supply_attributes(datacenter):
     result = {}
     for attribute in datacenter.controller_power_supply_attributes:
@@ -74,6 +111,12 @@ def get_controller_power_supply_attributes(datacenter):
         for data in attribute.attribute_data:
             attribute_data.append(data.controller_power_supply_name)
     return result
+
+
+def set_controller_power_supply_attributes(datacenter, data):
+    for attribute in datacenter.controller_power_supply_attributes:
+        if attribute.name in data:
+            _set_attribute_dict(attribute, data[attribute.name])
 
 
 def get_environment_sensor_attributes(datacenter):
@@ -86,6 +129,12 @@ def get_environment_sensor_attributes(datacenter):
     return result
 
 
+def set_environment_sensor_attributes(datacenter, data):
+    for attribute in datacenter.environment_sensor_attributes:
+        if attribute.name in data:
+            _set_attribute_dict(attribute, data[attribute.name])
+
+
 def get_controller_parameters(datacenter):
     result = {}
     for parameter in datacenter.controller_parameters:
@@ -94,6 +143,12 @@ def get_controller_parameters(datacenter):
         for data in parameter.parameter_data:
             parameter_data.append(data.controller_name)
     return result
+
+
+def set_controller_parameters(datacenter, data):
+    for parameter in datacenter.controller_parameters:
+        if parameter.name in data:
+            _set_parameter_dict(parameter, data[parameter.name])
 
 
 DEVICE_TYPE_METADATA_GETTERS = {
@@ -108,12 +163,32 @@ DEVICE_TYPE_METADATA_GETTERS = {
 }
 
 
+DEVICE_TYPE_METADATA_SETTERS = {
+    'sensor_attribute': set_sensor_attributes,
+    'controller_attribute': set_controller_attributes,
+    'controller_parameter': set_controller_parameters,
+    'power_supply_attribute': set_power_supply_attributes,
+    'controller_power_supply_attribute': (
+        set_controller_power_supply_attributes
+    ),
+    'environment_sensor_attribute': set_environment_sensor_attributes
+}
+
+
 def _get_datacenter_device_type_metadata(datacenter, device_type):
     if device_type not in DEVICE_TYPE_METADATA_GETTERS:
         raise exception.RecordNotExists(
             'device type %s does not exist' % device_type
         )
     return DEVICE_TYPE_METADATA_GETTERS[device_type](datacenter)
+
+
+def _set_datacenter_device_type_metadata(datacenter, device_type, data):
+    if device_type not in DEVICE_TYPE_METADATA_SETTERS:
+        raise exception.RecordNotExists(
+            'device type %s does not exist' % device_type
+        )
+    DEVICE_TYPE_METADATA_SETTERS[device_type](datacenter, data)
 
 
 def get_datacenter_device_type_metadata(
@@ -136,6 +211,25 @@ def get_datacenter_device_type_metadata(
     return device_type_metadata
 
 
+def set_datacenter_device_type_metadata(
+    session, datacenter_name, device_type, data
+):
+    logger.debug(
+        'datacenter %s device type %s metadata: %s',
+        datacenter_name, device_type, data
+    )
+    datacenter = session.query(
+        models.Datacenter
+    ).filter_by(name=datacenter_name).first()
+    if not datacenter:
+        raise exception.RecordNotExists(
+            'datacener %s does not exist' % datacenter_name
+        )
+    _set_datacenter_device_type_metadata(
+        datacenter, device_type, data
+    )
+
+
 def get_device_type_metadata_from_datacenter_metadata(
     datacenter_metadata, device_type
 ):
@@ -154,6 +248,13 @@ def _get_datacenter_metadata(datacenter):
     }
 
 
+def _set_datacenter_metadata(datacenter, data):
+    device_type_data = data['device_types']
+    for key, value in six.iteritems(DEVICE_TYPE_METADATA_SETTERS):
+        if key in device_type_data:
+            value(datacenter, device_type_data[key])
+
+
 def get_datacenter_metadata(session, datacenter_name):
     datacenter = session.query(
         models.Datacenter
@@ -170,6 +271,21 @@ def get_datacenter_metadata(session, datacenter_name):
     return datacenter_metadata
 
 
+def set_datacenter_metadata(session, datacenter_name, data):
+    logger.debug(
+        'datacenter %s metadata: %s',
+        datacenter_name, data
+    )
+    datacenter = session.query(
+        models.Datacenter
+    ).filter_by(name=datacenter_name).first()
+    if not datacenter:
+        raise exception.RecordNotExists(
+            'datacener %s does not exist' % datacenter_name
+        )
+    _set_datacenter_metadata(datacenter, data)
+
+
 def get_datacenter_metadata_from_metadata(metadata, datacenter_name):
     return metadata[datacenter_name]
 
@@ -184,11 +300,72 @@ def get_metadata(session):
     return result
 
 
+def set_metadata(session, data):
+    datacenters = session.query(models.Datacenter)
+    for datacenter in datacenters:
+        if datacenter.name in data:
+            _set_datacenter_metadata(datacenter, data[datacenter.name])
+
+
 TIMESERIES_VALUE_CONVERTERS = {
     'binary': bool,
     'continuous': float,
     'integer': int
 }
+
+
+def update_timeseries_metadata(
+    session, datacenter,
+    starttime, endtime,
+    device_type_units={}
+):
+    with database.session() as db_session:
+        datacenter_metadata = get_datacenter_metadata(
+            db_session, datacenter
+        )
+    logger.debug(
+        'update_timeseries_metadata original metadata: %s',
+        datacenter_metadata
+    )
+    time_interval = datacenter_metadata['time_interval']
+    for device_type, device_type_metadata in six.iteritems(
+        datacenter_metadata['device_types']
+    ):
+        for measurement, measurement_metadata in six.iteritems(
+            device_type_metadata
+        ):
+            response = list_timeseries(
+                session, {
+                    'where': {
+                        'starttime': starttime,
+                        'endtime': endtime
+                    },
+                    'group_by': ['time(%ss)' % time_interval],
+                    'order_by': ['time'],
+                    'aggregation': 'mean',
+                    'datacenter': datacenter,
+                    'device_type': {
+                        device_type: {
+                            measurement: []
+                        }
+                    }
+                },
+                time_precision=None,
+                convert_timestamp=False, format_timestamp=True,
+                device_type_units=device_type_units,
+                result_as_dataframe=True
+            )
+            response = response.dropna()
+            result = response.values
+            mean = result.mean()
+            deviation = result.std()
+            assert not np.isnan(mean)
+            assert not np.isnan(deviation)
+            measurement_metadata['attribute']['mean'] = mean
+            measurement_metadata['attribute']['deviation'] = deviation
+    logger.debug('updated datacenter metadata: %s', datacenter_metadata)
+    with database.session() as db_session:
+        set_datacenter_metadata(db_session, datacenter, datacenter_metadata)
 
 
 def convert_timeseries_value(
@@ -519,31 +696,17 @@ def get_device_type_mapping(
     )
 
 
-def list_timeseries(
-    session, data,
+def list_timeseries_internal(
+    session, data, datacenter,
     time_precision=None,
     convert_timestamp=False, format_timestamp=True,
-    device_type_units={}
+    device_type_mapping={}, device_type_types={},
+    device_type_patterns={}, device_type_unit_converters={},
+    result_as_dataframe=None
 ):
     dataframe = database.is_dataframe_session(session)
-    logger.debug('timeseries data: %s', data)
-    datacenter = data.pop('datacenter')
-    device_types = data.pop('device_type', {})
-    with database.session() as db_session:
-        (
-            device_type_mapping, device_type_types,
-            device_type_patterns, device_type_unit_converters
-        ) = get_device_type_mapping(
-            db_session, datacenter, device_types, device_type_units
-        )
-    logger.debug(
-        'device_type_mapping %s device_type_types %s '
-        'time_precision %s dataframe %s device_type_unit_converters %s'
-        'device_type_patterns %s convert_timestamp %s format_timestamp %s',
-        device_type_mapping, device_type_types, time_precision, dataframe,
-        device_type_unit_converters, device_type_patterns,
-        convert_timestamp, format_timestamp
-    )
+    if result_as_dataframe is None:
+        result_as_dataframe = dataframe
     if convert_timestamp:
         timestamp_converter = get_timestamp_converter(
             time_precision, dataframe
@@ -556,7 +719,7 @@ def list_timeseries(
         )
     else:
         timestamp_formatter = None
-    total_response = None
+    responses = []
     for device_type, measurements in six.iteritems(device_type_mapping):
         measurement_types = device_type_types.get(device_type) or {}
         measurement_patterns = device_type_patterns.get(device_type) or {}
@@ -576,41 +739,84 @@ def list_timeseries(
             query = get_query_from_data(
                 datacenter, device_type, pattern, data
             )
-        if dataframe:
-            result = session.query(query)
-        else:
-            result = session.query(query, epoch=time_precision)
-        response = timeseries_formatter(
-            result, device_type, measurement, devices,
-            measurement_type=measurement_type,
-            timestamp_converter=timestamp_converter,
-            timestamp_formatter=timestamp_formatter,
-            dataframe=dataframe,
-            measurement_pattern=measurement_pattern,
-            measurement_unit_converter=measurement_unit_converter
-        )
-        if not total_response:
-            total_response = response
-        else:
             if dataframe:
-                total_response = total_response.join(response)
+                result = session.query(query)
             else:
-                total_response.update(response)
-    return total_response
+                result = session.query(query, epoch=time_precision)
+            response = timeseries_formatter(
+                result, device_type, measurement, devices,
+                measurement_type=measurement_type,
+                timestamp_converter=timestamp_converter,
+                timestamp_formatter=timestamp_formatter,
+                dataframe=dataframe,
+                measurement_pattern=measurement_pattern,
+                measurement_unit_converter=measurement_unit_converter,
+                result_as_dataframe=result_as_dataframe
+            )
+            responses.append(response)
+    if result_as_dataframe:
+        return pd.concat(responses, axis=1)
+    else:
+        total_response = {}
+        for response in responses:
+            total_response.update(response)
+        return total_response
+
+
+def list_timeseries(
+    session, data,
+    time_precision=None,
+    convert_timestamp=False, format_timestamp=True,
+    device_type_units={},
+    result_as_dataframe=False
+):
+    logger.debug('timeseries data: %s', data)
+    datacenter = data.pop('datacenter')
+    device_types = data.pop('device_type', {})
+    with database.session() as db_session:
+        (
+            device_type_mapping, device_type_types,
+            device_type_patterns, device_type_unit_converters
+        ) = get_device_type_mapping(
+            db_session, datacenter, device_types, device_type_units
+        )
+    logger.debug(
+        'device_type_mapping %s device_type_types %s '
+        'time_precision %s device_type_unit_converters %s'
+        'device_type_patterns %s convert_timestamp %s format_timestamp %s'
+        'result_as_dataframe %s',
+        device_type_mapping, device_type_types, time_precision,
+        device_type_unit_converters, device_type_patterns,
+        convert_timestamp, format_timestamp, result_as_dataframe
+    )
+    return list_timeseries_internal(
+        session, data, datacenter,
+        time_precision=time_precision,
+        convert_timestamp=convert_timestamp,
+        format_timestamp=format_timestamp,
+        device_type_mapping=device_type_mapping,
+        device_type_types=device_type_types,
+        device_type_patterns=device_type_patterns,
+        device_type_unit_converters=device_type_unit_converters,
+        result_as_dataframe=result_as_dataframe
+    )
 
 
 def timeseries_formatter(
     result, device_type, measurement, devices, measurement_type=None,
     timestamp_converter=None, timestamp_formatter=None,
     dataframe=False, measurement_pattern=None,
-    measurement_unit_converter=None
+    measurement_unit_converter=None,
+    result_as_dataframe=False
 ):
     logger.debug(
         'format timeseries device_type %s '
         'measurement %s devices %s measurement_type %s '
-        'dataframe %s measurement_pattern %s',
+        'dataframe %s measurement_pattern %s '
+        'measurement_unit_converter %s result_as_dataframe %s',
         device_type, measurement, devices,
-        measurement_type, dataframe, measurement_pattern
+        measurement_type, dataframe, measurement_pattern,
+        measurement_unit_converter, result_as_dataframe
     )
     response = {}
     unit_converter = None
@@ -622,7 +828,6 @@ def timeseries_formatter(
         _, group_tags = key
         group_tags = dict(group_tags)
         device = group_tags['device']
-        logger.debug('iterate tags %s', group_tags)
         if devices and device not in devices:
             continue
         device_response = {}
@@ -639,8 +844,6 @@ def timeseries_formatter(
                 if value is not None:
                     if unit_converter:
                         value = unit_converter(value)
-                    else:
-                        logger.debug('unit converter is None')
                     device_response[timestamp] = format_timeseries_value(
                         value, measurement_type,
                         base_value=device_response.get(timestamp)
@@ -664,7 +867,7 @@ def timeseries_formatter(
                         value, measurement_type,
                         base_value=device_response.get(timestamp)
                     )
-    if dataframe:
+    if result_as_dataframe:
         return pd.DataFrame(response)
     else:
         return response
@@ -743,42 +946,27 @@ def write_points(
     else:
         points = []
         for timestamp, value in six.iteritems(timeseries):
-            points.append({
-                'measurement': measurement,
-                'time': timestamp,
-                'fields': {
-                    'value': value
-                }
-            })
+            if value is not None:
+                points.append({
+                    'measurement': measurement,
+                    'time': timestamp,
+                    'fields': {
+                        'value': value
+                    }
+                })
         return session.write_points(
             points, time_precision=time_precision, tags=tags
         )
 
 
-def create_timeseries(
-    session, data,
-    tags={}, time_precision=None,
+def create_timeseries_internal(
+    session, data, datacenter,
+    time_precision=None,
     convert_timestamp=True,
-    device_type_units={}
+    device_type_mapping={}, device_type_types={},
+    device_type_patterns={}, device_type_unit_converters={}
 ):
     dataframe = database.is_dataframe_session(session)
-    logger.debug('create timeseries tags: %s', tags)
-    datacenter = tags.pop('datacenter')
-    device_types = tags.pop('device_type')
-    with database.session() as db_session:
-        (
-            device_type_mapping, device_type_types, device_type_patterns,
-            device_type_unit_converters
-        ) = get_device_type_mapping(
-            db_session, datacenter, device_types, device_type_units, False
-        )
-    logger.debug(
-        'device_type_mapping %s device_type_types %s '
-        'time_precision %s dataframe %s '
-        'device_type_patterns %s convert_timestamp %s device_type_units %s',
-        device_type_mapping, device_type_types, time_precision, dataframe,
-        device_type_patterns, convert_timestamp, device_type_units
-    )
     status = True
     if convert_timestamp:
         timestamp_converter = get_timestamp_converter(
@@ -809,6 +997,57 @@ def create_timeseries(
     return status
 
 
+def create_timeseries(
+    session, data,
+    tags, time_precision=None,
+    convert_timestamp=True,
+    device_type_units={}
+):
+    logger.debug('create timeseries tags: %s', tags)
+    datacenter = tags.pop('datacenter')
+    device_types = tags.pop('device_type')
+    with database.session() as db_session:
+        (
+            device_type_mapping, device_type_types, device_type_patterns,
+            device_type_unit_converters
+        ) = get_device_type_mapping(
+            db_session, datacenter, device_types, device_type_units, False
+        )
+    logger.debug(
+        'device_type_mapping %s device_type_types %s '
+        'time_precision %s '
+        'device_type_patterns %s convert_timestamp %s device_type_units %s',
+        device_type_mapping, device_type_types, time_precision,
+        device_type_patterns, convert_timestamp, device_type_units
+    )
+    return create_timeseries_internal(
+        session, data, datacenter, time_precision=time_precision,
+        convert_timestamp=convert_timestamp,
+        device_type_mapping=device_type_mapping,
+        device_type_types=device_type_types,
+        device_type_patterns=device_type_patterns,
+        device_type_unit_converters=device_type_unit_converters
+    )
+
+
+def delete_timeseries_internal(
+    session, datacenter,
+    device_type_mapping={}
+):
+    for device_type, measurement_mapping in six.iteritems(
+        device_type_mapping
+    ):
+        for measurement, devices in six.iteritems(measurement_mapping):
+            for device in devices:
+                session.delete_series(
+                    measurement=measurement, tags={
+                        'datacenter': datacenter,
+                        'device_type': device_type,
+                        'device': device
+                    }
+                )
+
+
 def delete_timeseries(session, tags):
     logger.debug('delete timeseries tags: %s', tags)
     datacenter = tags.pop('datacenter')
@@ -824,18 +1063,9 @@ def delete_timeseries(session, tags):
         'device_type_mapping %s',
         device_type_mapping
     )
-    for device_type, measurement_mapping in six.iteritems(
-        device_type_mapping
-    ):
-        for measurement, devices in six.iteritems(measurement_mapping):
-            for device in devices:
-                session.delete_series(
-                    measurement=measurement, tags={
-                        'datacenter': datacenter,
-                        'device_type': device_type,
-                        'device': device
-                    }
-                )
+    delete_timeseries_internal(
+        session, datacenter, device_type_mapping=device_type_mapping
+    )
 
 
 TIMEDELTA_MAP = {
