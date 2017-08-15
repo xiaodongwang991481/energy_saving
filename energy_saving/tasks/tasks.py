@@ -83,7 +83,7 @@ def test_model(
     model_type_builder = manager.get_model_type_builder(model_type)
     model_type_class = model_type_builder.get_model_type(datacenter)
     model_type_class.test(
-        test_result, starttime=starttime,
+        starttime=starttime,
         endtime=endtime, data=data
     )
 
@@ -101,6 +101,6 @@ def apply_model(
     model_type_builder = manager.get_model_type_builder(model_type)
     model_type_class = model_type_builder.get_model_type(datacenter)
     model_type_class.apply(
-        prediction, starttime=starttime,
+        starttime=starttime,
         endtime=endtime, data=data
     )

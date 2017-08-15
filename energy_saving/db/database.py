@@ -103,18 +103,18 @@ def init(database_url=None, influx_url=None):
     logger.info('init influx %s', influx_url)
     root_logger = logging.getLogger()
     loglevel_mapping = logsetting.LOGLEVEL_MAPPING
-    logging.getLogger('urllib3.connectionpool').setLevel(logging.ERROR)
+    logging.getLogger('urllib3').setLevel(logging.ERROR)
+    logging.getLogger('sqlalchemy').setLevel(logging.ERROR)
     fine_debug = root_logger.isEnabledFor(loglevel_mapping['fine'])
     if fine_debug:
-        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
-        logging.getLogger('urllib3.connectionpool').setLevel(logging.DEBUG)
+        logging.getLogger('sqlalchemy').setLevel(logging.INFO)
+        logging.getLogger('urllib3').setLevel(logging.INFO)
     finest_debug = root_logger.isEnabledFor(
         loglevel_mapping['finest']
     )
     if finest_debug:
-        logging.getLogger('sqlalchemy.dialects').setLevel(logging.DEBUG)
-        logging.getLogger('sqlalchemy.pool').setLevel(logging.DEBUG)
-        logging.getLogger('sqlalchemy.orm').setLevel(logging.DEBUG)
+        logging.getLogger('sqlalchemy').setLevel(logging.DEBUG)
+        logging.getLogger('urllib3').setLevel(logging.DEBUG)
     poolclass = POOL_MAPPING[
         CONF.database_pool_type
     ]

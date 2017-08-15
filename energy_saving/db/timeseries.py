@@ -552,12 +552,24 @@ def get_query_from_data(
     where = data.get('where') or {}
     where['device_type'] = device_type
     where['datacenter'] = datacenter
-    group_by = (data.get('group_by') or []) + ['device']
+    group_by = data.get('group_by') or []
+    if isinstance(group_by, basestring):
+        group_by = [group_by]
+    if 'device' not in group_by:
+        group_by = group_by + ['device']
     order_by = data.get('order_by') or []
+    if isinstance(order_by, basestring):
+        order_by = [order_by]
     fill = data.get('fill')
     aggregation = data.get('aggregation')
+    if group_by:
+        assert aggregation
     limit = data.get('limit')
+    if limit:
+        limit = int(limit)
     offset = data.get('offset')
+    if offset:
+        offset = int(offset)
     if not query:
         query = get_query(
             measurement, where=where,
@@ -573,17 +585,15 @@ def get_query_from_data(
 
 
 def get_device_type_mapping(
-    session, datacenter, device_types,
-    device_type_units={},
+    device_types,
+    datacenter_metadata,
     raise_exception=True
 ):
     logger.debug(
-        'get_device_type_mapping datacenter %s device_types %s '
-        'device_type_units %s raise exception %s',
-        datacenter, device_types, device_type_units, raise_exception
-    )
-    datacenter_metadata = get_datacenter_metadata(
-        session, datacenter
+        'get_device_type_mapping device_types %s '
+        'datacenter_metadata %s raise exception %s',
+        device_types, datacenter_metadata,
+        raise_exception
     )
     device_type_mapping = {}
     device_type_measurements = {}
@@ -660,21 +670,39 @@ def get_device_type_mapping(
                     continue
                 real_devices.append(device)
             measurement_mapping[measurement] = real_devices
+    return device_type_mapping
+
+
+def get_device_type_infos(
+    session, datacenter, device_types,
+    device_type_units={},
+    raise_exception=True
+):
+    datacenter_metadata = get_datacenter_metadata(session, datacenter)
+    device_type_mapping = get_device_type_mapping(
+        device_types, datacenter_metadata, raise_exception=raise_exception
+    )
     device_type_types = {}
     device_type_patterns = {}
     device_type_unit_converters = {}
     for device_type, measurement_mapping in six.iteritems(
         device_type_mapping
     ):
+        device_type_metadata = datacenter_metadata[
+            'device_types'
+        ][device_type]
         measurement_types = device_type_types.setdefault(device_type, {})
         measurement_patterns = device_type_patterns.setdefault(
             device_type, {}
         )
-        measurement_units = device_type_units.get(device_type) or {}
+        measurement_units = {}
+        if device_type_units:
+            measurement_units = device_type_units.get(device_type) or {}
         measurement_unit_converters = (
             device_type_unit_converters.setdefault(device_type, {})
         )
         for measurement in six.iterkeys(measurement_mapping):
+            measurement_metadata = device_type_metadata[measurement]
             measurement_types[measurement] = measurement_metadata[
                 'attribute'
             ]['type']
@@ -683,7 +711,7 @@ def get_device_type_mapping(
             ]['pattern']
             if measurement_pattern:
                 measurement_patterns[measurement] = measurement_pattern
-            if measurement in measurement_units:
+            if measurement_units and measurement in measurement_units:
                 measurement_unit = measurement_units[measurement]
                 if measurement_unit:
                     measurement_unit_converters[measurement] = (
@@ -755,7 +783,10 @@ def list_timeseries_internal(
             )
             responses.append(response)
     if result_as_dataframe:
-        return pd.concat(responses, axis=1)
+        if responses:
+            return pd.concat(responses, axis=1)
+        else:
+            return pd.DataFrame()
     else:
         total_response = {}
         for response in responses:
@@ -768,7 +799,7 @@ def list_timeseries(
     time_precision=None,
     convert_timestamp=False, format_timestamp=True,
     device_type_units={},
-    result_as_dataframe=False
+    result_as_dataframe=None
 ):
     logger.debug('timeseries data: %s', data)
     datacenter = data.pop('datacenter')
@@ -777,7 +808,7 @@ def list_timeseries(
         (
             device_type_mapping, device_type_types,
             device_type_patterns, device_type_unit_converters
-        ) = get_device_type_mapping(
+        ) = get_device_type_infos(
             db_session, datacenter, device_types, device_type_units
         )
     logger.debug(
@@ -1010,7 +1041,7 @@ def create_timeseries(
         (
             device_type_mapping, device_type_types, device_type_patterns,
             device_type_unit_converters
-        ) = get_device_type_mapping(
+        ) = get_device_type_infos(
             db_session, datacenter, device_types, device_type_units, False
         )
     logger.debug(
@@ -1056,7 +1087,7 @@ def delete_timeseries(session, tags):
         (
             device_type_mapping, device_type_types, device_type_patterns,
             device_type_unit_converters
-        ) = get_device_type_mapping(
+        ) = get_device_type_infos(
             db_session, datacenter, device_types, {}, False
         )
     logger.debug(

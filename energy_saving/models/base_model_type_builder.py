@@ -1,10 +1,11 @@
 
 import abc
 # from abc import abstractmethod
+import datetime
 import logging
 import os
 import os.path
-import pandas
+import pandas as pd
 import simplejson as json
 import six
 
@@ -45,7 +46,6 @@ class BaseModelType(object):
             self.builder.name, self.config
         )
         self.model_builder = self.get_model_builder()
-        self.model = self.model_builder.get_model(self)
         self.built = False
         self.trained = False
 
@@ -77,7 +77,7 @@ class BaseModelType(object):
 
     def get_metadata(self):
         with database.session() as session:
-            return database.get_datacenter_metadata(
+            return timeseries.get_datacenter_metadata(
                 session, self.datacenter
             )
 
@@ -87,18 +87,32 @@ class BaseModelType(object):
         self.output_nodes = nodes['output']
 
     def load_built(self):
+        logger.debug('load built? %s', self.built)
         if not self.built:
             self.load_nodes()
             self.built = True
+            model_path = self.get_file(self.config['model_path'])
+            self.model = self.model_builder.get_model(
+                self, model_path,
+                [self.get_node_key(node) for node in self.input_nodes],
+                [self.get_node_key(node) for node in self.output_nodes]
+            )
+            logger.debug('built model is loaded')
 
     def load_trained(self):
         self.load_built()
+        logger.debug('load trained? %s', self.trained)
         if not self.trained:
             self.load_model()
             self.trained = True
+            logger.debug('trained model is loaded')
 
     def save_model(self):
-        self.model.save()
+        model_config = self.model.save()
+        self.save_config(
+            self.config['model_config'],
+            model_config
+        )
 
     def load_model(self):
         self.model.load()
@@ -110,61 +124,94 @@ class BaseModelType(object):
         )
 
     def save_built(self):
+        logger.debug('save built model')
         self.save_nodes()
+        self.built = True
+        self.trained = False
 
     def save_trained(self):
+        logger.debug('save trained model')
         self.save_model()
+        self.trained = True
 
     def _create_nodes(self, patterns):
         nodes = []
-        for pattern in patterns:
-            device_types = pattern['device_type']
-            if isinstance(device_types, basestring):
-                device_types = [device_types]
-            measurements = pattern['measurement']
-            if isinstance(measurements, basestring):
-                measurements = [measurements]
-            for device_type in device_types:
-                device_type_metadata = self.metadata[
-                    'device_types'
-                ][device_type]
-                for measurement in measurements:
-                    measurement_metadata = device_type_metadata[measurement]
-                    for device in measurement_metadata['devices']:
-                        nodes.append({
-                            'device_type': device_type,
-                            'measurement':  measurement,
-                            'device': device,
-                            'unit': measurement_metadata[
-                                'attribute'
-                            ]['unit'],
-                            'mean': measurement_metadata[
-                                'attribute'
-                            ]['mean'],
-                            'deviation': measurement_metadata[
-                                'attribute'
-                            ]['deviation']
-                        })
+        logger.debug(
+            'create nodes with patttern: %s', patterns
+        )
+        device_type_mapping = timeseries.get_device_type_mapping(
+            patterns, self.metadata
+        )
+        for device_type, measurement_mapping in six.iteritems(
+            device_type_mapping
+        ):
+            device_type_metadata = self.metadata[
+                'device_types'
+            ][device_type]
+            for measurement, devices in six.iteritems(
+                measurement_mapping
+            ):
+                measurement_metadata = device_type_metadata[measurement]
+                for device in devices:
+                    nodes.append({
+                        'device_type': device_type,
+                        'measurement':  measurement,
+                        'device': device,
+                        'unit': measurement_metadata[
+                            'attribute'
+                        ]['unit'],
+                        'type': measurement_metadata[
+                            'attribute'
+                        ]['type'],
+                        'mean': measurement_metadata[
+                            'attribute'
+                        ]['mean'],
+                        'deviation': measurement_metadata[
+                            'attribute'
+                        ]['deviation']
+                    })
         return nodes
 
     def create_nodes(self, data=None):
         if not data:
-            self.input_nodes = self.process_input_nodes(
-                self._create_nodes(self.config['inputs'])
-            )
-            self.output_nodes = self.process_output_nodes(
-                self._create_nodes(self.config['outputs'])
-            )
+            input_nodes = self._create_nodes(self.config['inputs'])
+            output_nodes = self._create_nodes(self.config['outputs'])
         else:
-            self.input_nodes = data['input_nodes']
-            self.output_nodes = data['output_nodes']
+            input_nodes, output_nodes = (
+                data['input_nodes'], data['output_nodes']
+            )
+        logger.debug(
+            'input nodes before processed: %s', input_nodes
+        )
+        logger.debug(
+            'output nodes before processed: %s', output_nodes
+        )
+        (
+            self.input_nodes, self.output_nodes
+        ) = self.process_nodes(input_nodes, output_nodes)
+        logger.debug('input nodes: %s', self.input_nodes)
+        logger.debug('output nodes: %s', self.output_nodes)
 
     def build(self, data=None):
         logger.debug('%s build model', self)
         self.create_nodes(data)
-        self.model.build()
-        self.built = True
+        model_path = self.get_file(self.config['model_path'])
+        self.model = self.model_builder.get_model(
+            self, model_path,
+            [self.get_node_key(node) for node in self.input_nodes],
+            [self.get_node_key(node) for node in self.output_nodes]
+        )
         self.save_built()
+
+    def _shift_data(self, data, period):
+        time_interval = self.metadata['time_interval']
+        return data.shift(
+            period, datetime.timedelta(seconds=time_interval)
+        )
+
+    def _differentiate_data(self, data):
+        shifted_data = self._shift_data(data, -1)
+        return (shifted_data - data).iloc[1:]
 
     def _get_data_from_timeseries(
             self, session,
@@ -173,102 +220,124 @@ class BaseModelType(object):
         time_interval = self.metadata['time_interval']
         device_type_mapping = {}
         device_type_types = {}
-        device_type_patterns = {}
         for node in nodes:
             device_type = node['device_type']
             measurement = node['measurement']
             device = node['device']
-            assert device_type in self.metadata['device_types']
-            device_type_metadata = self.metadata['device_types'][device_type]
-            assert measurement in device_type_metadata
-            measurement_metadata = device_type_metadata[measurement]
-            assert device in measurement_metadata['devices']
             measurement_mapping = device_type_mapping.setdefault(
                 device_type, {}
             )
             measurement_types = device_type_types.setdefault(device_type, {})
             devices = measurement_mapping.setdefault(measurement, [])
             measurement_types.setdefault(
-                measurement, measurement_metadata[
-                    'attribute'
-                ]['type']
+                measurement, node['type']
             )
-            measurement_patterns = device_type_patterns.setdefault(
-                device_type, {}
-            )
-            measurement_pattern = measurement_metadata['attribute']['pattern']
-            if measurement_pattern:
-                measurement_patterns.setdefault(
-                    measurement, measurement_pattern
-                )
             if device not in devices:
                 devices.append(device)
-        with database.influx_session(dataframe=True) as session:
-            response = timeseries.list_timeseries(
-                session, {
-                    'where': {
-                        'datacenter': self.datacenter,
-                        'starttime': starttime,
-                        'endtime': endtime
-                    },
-                    'group_by': ['time(%ss)' % time_interval, 'device'],
-                    'order_by': ['time', 'device'],
-                    'aggregation': 'mean',
-                    'device_type': device_type_mapping
-                }, device_type_types=device_type_types,
-                convert_timestamp=True,
-                device_type_patterns=device_type_patterns
-            )
+        response = timeseries.list_timeseries_internal(
+            session, {
+                'where': {
+                    'starttime': starttime,
+                    'endtime': endtime
+                },
+                'group_by': ['time(%ss)' % time_interval],
+                'order_by': ['time'],
+                'aggregation': 'mean'
+            },
+            self.datacenter,
+            convert_timestamp=True,
+            format_timestamp=False,
+            device_type_mapping=device_type_mapping,
+            device_type_types=device_type_types
+        )
+        logger.debug(
+            'get data from timeseries %s %s',
+            starttime, endtime
+        )
         return response
 
     def _get_data_direct(self, data, nodes):
         dataframe = {}
+        expected_data = set()
+        for node in nodes:
+            device_type = node['device_type']
+            measurement = node['measurement']
+            device = node['device']
+            expected_data.add((device_type, measurement, device))
         for device_type, device_type_data in six.iteritems(data):
             for measurement, measurement_data in six.iteritems(
                 device_type_data
             ):
                 for device, device_data in six.iteritems(measurement_data):
-                    times, values = zip(*device_data.items())
                     key = (measurement, device_type, device)
-                    dataframe[key] = pandas.Series(values, index=times)
-        return pandas.DataFrame(dataframe)
+                    if key in expected_data:
+                        times, values = zip(*device_data.items())
+                        dataframe[key] = pd.Series(values, index=times)
+        return pd.DataFrame(dataframe)
 
-    def get_data(self, starttime=None, endtime=None, data=None):
+    def get_data(
+        self, starttime=None, endtime=None, data=None,
+        get_input=True, get_ouput=True
+    ):
+        input_nodes = self.get_extended_nodes(self.input_nodes)
+        output_nodes = self.get_extended_nodes(self.output_nodes)
+        logger.debug('get data input nodes: %s', input_nodes)
+        logger.debug('get data output nodes: %s', output_nodes)
         if not data:
             with database.influx_session(dataframe=True) as session:
-                input_data = self.process_input_data(
-                    self._get_data_from_timeseries(
-                        session, self.input_query_template,
+                if get_input:
+                    input_data = self._get_data_from_timeseries(
+                        session,
                         starttime, endtime,
-                        self.input_nodes
+                        input_nodes
                     )
-                )
-                output_data = self.process_output_data(
-                    self._get_data_from_timeseries(
-                        session, self.output_query_template,
+                else:
+                    input_data = None
+                if get_ouput:
+                    output_data = self._get_data_from_timeseries(
+                        session,
                         starttime, endtime,
-                        self.output_nodes
+                        output_nodes
                     )
-                )
+                else:
+                    output_data = None
         else:
-            input_data = self._get_data_direct(
-                data['input_data']
-            )
-            output_data = self._get_data_direct(
-                data['output_data']
-            )
+            if get_input:
+                input_data = self._get_data_direct(
+                    data['input_data'],
+                    input_nodes
+                )
+            else:
+                input_data = None
+            if get_ouput:
+                output_data = self._get_data_direct(
+                    data['output_data'],
+                    self.output_nodes
+                )
+            else:
+                output_data = None
+        if input_data is not None:
+            logger.debug('input data columns: %s', input_data.columns)
+            logger.debug('input data index: %s', input_data.index)
+        if output_data is not None:
+            logger.debug('output data columns: %s', output_data.columns)
+            logger.debug('output data index: %s', output_data.index)
         return (
-            self.process_input_data(input_data),
-            self.process_output_data(output_data)
+            self.process_data(
+                input_data, output_data
+            )
         )
 
-    def test(self, test_result, starttime=None, endtime=None, data=None):
+    def test(self, starttime=None, endtime=None, data=None):
         logger.debug('%s test model', self)
         self.load_trained()
         input_data, output_data = self.get_data(
             starttime=starttime, endtime=endtime, data=data
         )
-        self.model.test(input_data, output_data)
+        result = self.model.test(
+            input_data, output_data
+        )
+        return result
 
     def is_built(self):
         if not self.built:
@@ -281,31 +350,163 @@ class BaseModelType(object):
             logger.error('%s is not trained yet', self)
             raise Exception('%s is not trained' % self)
 
-    def process_input_nodes(self, input_nodes):
-        return input_nodes
+    def process_nodes(self):
+        return self.input_nodes, self.output_nodes
 
-    def process_output_nodes(self, output_nodes):
-        return output_nodes
+    def get_node_mapping(self, nodes):
+        node_map = {}
+        for node in nodes:
+            device_type = node['device_type']
+            measurement = node['measurement']
+            device = node['device']
+            node_map[(device_type, measurement, device)] = node
+        return node_map
 
-    def process_input_data(self, input_data):
-        return input_data
+    def get_extended_nodes(self, nodes):
+        extended_nodes = []
+        for node in nodes:
+            if 'sub_nodes' in node:
+                extended_nodes.extend(
+                    self.get_extended_nodes(node['sub_nodes'])
+                )
+            else:
+                extended_nodes.append(node)
+        return extended_nodes
 
-    def process_output_data(self, output_data):
-        return output_data
+    def normalize_data_by_node(self, data, node, normalized_data={}):
+        node_key = self.get_node_key(node)
+        normalized_data[node_key] = (
+            data[node_key] - node['mean']
+        ) / node['deviation']
+
+    def normalize_data_by_nodes(self, data, nodes):
+        normralized_data = {}
+        for node in nodes:
+            self.normalize_data_by_node(data, node, normralized_data)
+        return pd.DataFrame(normralized_data)
+
+    def normalize_data(self, input_data, output_data):
+        if input_data is not None:
+            input_data = self.normalize_data_by_nodes(
+                input_data, self.input_nodes
+            )
+        if output_data is not None:
+            output_data = self.normalize_data_by_nodes(
+                output_data, self.output_nodes
+            )
+        return input_data, output_data
+
+    def denormalize_data_by_node(self, data, node, denormalized_data={}):
+        node_key = self.get_node_key(node)
+        denormalized_data[node_key] = (
+            data[node_key] * (node['deviation'] + 0.1) + node['mean']
+        )
+
+    def denormalize_data_by_nodes(self, data, nodes):
+        denormalized_data = {}
+        for node in nodes:
+            self.denormalize_data_by_node(data, node, denormalized_data)
+        return pd.DataFrame(denormalized_data)
+
+    def denormalize_data(self, input_data, output_data):
+        if input_data is not None:
+            input_data = self.denormalize_data_by_nodes(
+                input_data, self.input_nodes
+            )
+        if output_data is not None:
+            output_data = self.denormalize_data_by_nodes(
+                output_data, self.output_nodes
+            )
+        return input_data, output_data
+
+    def clean_data(self, input_data, output_data):
+        if input_data is not None and output_data is not None:
+            total = pd.concat(
+                [input_data, output_data], axis=1,
+                keys=['input', 'output']
+            )
+            total = total.dropna()
+            input_data = total['input']
+            output_data = total['output']
+        elif input_data is not None:
+            input_data = input_data.dropna()
+        elif output_data is not None:
+            output_data = output_data.dropna()
+        return input_data, output_data
+
+    def merge_data_by_nodes(self, data, nodes):
+        merged_data = {}
+        for node in nodes:
+            self.merge_data_by_node(data, node, merged_data)
+        return pd.DataFrame(merged_data)
+
+    def get_node_key(self, node):
+        device_type = node['device_type']
+        measurement = node['measurement']
+        device = node['device']
+        return (device_type, measurement, device)
+
+    def merge_data_by_node(self, data, node, merged_data={}):
+        node_key = self.get_node_key(node)
+        node_data = None
+        if 'sub_nodes' in node:
+            sub_node_dataframe = {}
+            for sub_node in node['sub_nodes']:
+                sub_node_key = self.get_node_key(sub_node)
+                sub_node_dataframe[sub_node_key] = data[sub_node_key]
+            node_data = pd.DataFrame(
+                sub_node_dataframe
+            ).sum(axis=1)
+        else:
+            node_data = data[node_key]
+        merged_data[node_key] = node_data
+
+    def merge_data(self, input_data, output_data):
+        if input_data is not None:
+            input_data = self.merge_data_by_nodes(
+                input_data, self.input_nodes
+            )
+        if output_data is not None:
+            output_data = self.merge_data_by_nodes(
+                output_data, self.output_nodes
+            )
+        return input_data, output_data
+
+    def process_data(self, input_data, output_data):
+        input_data, output_data = self.clean_data(
+            input_data, output_data
+        )
+        input_data, output_data = self.merge_data(
+            input_data, output_data
+        )
+        input_data, output_data = self.normalize_data(
+            input_data, output_data
+        )
+        return input_data, output_data
 
     def train(self, starttime=None, endtime=None, data=None):
         logger.debug('%s train model', self)
         self.load_built()
-        self.trained = True
         input_data, output_data = self.get_data(
             starttime=starttime, endtime=endtime, data=data
         )
-        self.model.train(input_data, output_data)
+        result = self.model.train(
+            input_data, output_data
+        )
         self.save_trained()
+        return result
 
-    def apply(self, prediction, starttime=None, endtime=None, data=None):
+    def apply(self, starttime=None, endtime=None, data=None):
         logger.debug('%s apply model', self)
         self.load_trained()
+        input_data, _ = self.get_data(
+            starttime=starttime, endtime=endtime, data=data,
+            get_output=False
+        )
+        result = self.model.apply(
+            input_data
+        )
+        return result
 
     def __str__(self):
         return '%s[builder=%s, datacenter=%s]' % (
