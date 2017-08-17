@@ -160,13 +160,6 @@ class Datacenter(BASE, LocationMixin):
         cascade='all, delete-orphan',
         backref=backref('datacenter', viewonly=True)
     )
-    predictions = relationship(
-        'Prediction',
-        foreign_keys='[Prediction.datacenter_name]',
-        passive_deletes=True,
-        cascade='all, delete-orphan',
-        backref=backref('datacenter', viewonly=True)
-    )
     test_results = relationship(
         'TestResult',
         foreign_keys='[TestResult.datacenter_name]',
@@ -837,26 +830,6 @@ class EnvironmentSensorAttrData(BASE):
         )
 
 
-class Prediction(BASE):
-    """Prediction table."""
-    __tablename__ = 'prediction'
-    datacenter_name = Column(
-        String(36),
-        ForeignKey('datacenter.name', onupdate='CASCADE', ondelete='CASCADE'),
-        primary_key=True
-    )
-    name = Column(
-        String(36),
-        primary_key=True,
-        default=uuidutils.generate_uuid
-    )
-
-    def __str__(self):
-        return 'Prediction[datacenter_name=%s,name=%s]' % (
-            self.datacenter_name, self.name
-        )
-
-
 class TestResult(BASE):
     """TestResult table."""
     __tablename__ = 'test_result'
@@ -870,8 +843,13 @@ class TestResult(BASE):
         primary_key=True,
         default=uuidutils.generate_uuid
     )
+    properties = Column(JSON)
+    status = Column(
+        Enum('initialized', 'pending', 'success', 'failure'),
+        default='initialized', server_default='initialized'
+    )
 
     def __str__(self):
-        return 'TestResult[datacenter_name=%s,name=%s]' % (
-            self.datacenter_name, self.name
+        return 'TestResult[datacenter_name=%s,name=%s,status=%s]' % (
+            self.datacenter_name, self.name, self.status
         )

@@ -309,6 +309,98 @@ def list_device_type_timeseries_models(datacenter, device_type):
     )
 
 
+@app.route(
+    "/test_result/timeseries/<datacenter>/<test_result>/<measurement_key>",
+    methods=['GET']
+)
+def list_test_result_timeseries(datacenter, test_result, measurement_key):
+    data = _get_request_args(as_list={
+        'group_by': True,
+        'order_by': True,
+        'device_type': True,
+        'measurement': True,
+        'device': True
+    })
+    time_precision = data.get(
+        'time_precision',
+        CONF.timeseries_time_precision
+    ) or None
+    device_type_mapping = {}
+    device_type_types = {}
+    with database.session() as session:
+        datacenter_metadata = timeseries.get_datacenter_metadata(
+            session, datacenter
+        )
+        test_result_db = session.query(
+            models.TestResult
+        ).filter_by(datacenter_name=datacenter, name=test_result).first()
+        device_type_mapping = test_result_db.properties.get(
+            'device_type_mapping', {}
+        )
+        device_type_types = test_result_db.properties.get(
+            'device_type_types', {}
+        )
+    device_types = data.get('device_type')
+    if device_types:
+        measurements = data.get('measurement')
+        if measurements:
+            devices = data.get('device')
+            if devices:
+                measurements = {
+                    measurement: devices
+                    for measurement in measurements
+                }
+            device_types = {
+                device_type: measurements
+                for device_type in device_types
+            }
+    device_type_units = {
+    }
+    for device_type, device_type_metadata in six.iteritems(
+        datacenter_metadata['device_types']
+    ):
+        measurement_units = device_type_units.setdefault(
+            device_type, {}
+        )
+        for measurement in six.iterkeys(device_type_metadata):
+            measurement_unit = data.get(
+                '%s_%s_unit' % (device_type, measurement)
+            )
+            if measurement_unit:
+                measurement_units[measurement] = measurement_unit
+    with database.influx_session() as session:
+        response = timeseries.list_test_result_timeseries(
+            session, {
+                'where': {
+                    'device': data.get('device'),
+                    'reference': test_result,
+                    'starttime': data.get('starttime'),
+                    'endtime': data.get('endtime')
+                },
+                'group_by': data.get('group_by'),
+                'order_by': data.get('order_by'),
+                'fill': data.get('fill'),
+                'aggregation': data.get('aggregation'),
+                'limit': data.get('limit'),
+                'offset': data.get('offset'),
+                'datacenter': datacenter,
+                'device_type': device_types
+            }, measurement_key,
+            time_precision=time_precision,
+            device_type_mapping=device_type_mapping,
+            device_type_types=device_type_types
+        )
+    outputs = {}
+    for key, tag_response in six.iteritems(response):
+        device_type, measurement, device = key
+        device_type_outputs = outputs.setdefault(device_type, {})
+        measurement_outputs = device_type_outputs.setdefault(measurement, {})
+        measurement_outputs[device] = tag_response
+    return utils.make_json_response(
+        200, outputs
+    )
+
+
 @app.route("/import/database/<model_name>", methods=['POST'])
 def upload_model(model_name):
     logger.debug('upload model %s', model_name)
@@ -390,6 +482,19 @@ def list_timeseries(datacenter):
             session, datacenter
         )
     device_types = data.get('device_type')
+    if device_types:
+        measurements = data.get('measurement')
+        if measurements:
+            devices = data.get('device')
+            if devices:
+                measurements = {
+                    measurement: devices
+                    for measurement in measurements
+                }
+            device_types = {
+                device_type: measurements
+                for device_type in device_types
+            }
     device_type_units = {
     }
     for device_type, device_type_metadata in six.iteritems(
@@ -451,9 +556,20 @@ def list_device_type_timeseries(datacenter, device_type):
         device_type_metadata = timeseries.get_datacenter_device_type_metadata(
             session, datacenter, device_type
         )
-    device_types = {
-        device_type:  data.get('measurement')
-    }
+    device_types = [device_type]
+    if device_types:
+        measurements = data.get('measurement')
+        if measurements:
+            devices = data.get('device')
+            if devices:
+                measurements = {
+                    measurement: devices
+                    for measurement in measurements
+                }
+            device_types = {
+                device_type: measurements
+                for device_type in device_types
+            }
     measurement_units = {}
     device_type_units = {
         device_type: measurement_units
@@ -585,7 +701,6 @@ def list_device_timeseries(datacenter, device_type, measurement, device):
         response = timeseries.list_timeseries(
             session, {
                 'where': {
-                    'datacenter': datacenter,
                     'device': device,
                     'starttime': data.get('starttime'),
                     'endtime': data.get('endtime')
@@ -656,7 +771,6 @@ def export_timeseries(datacenter):
         response = timeseries.list_timeseries(
             session, {
                 'where': {
-                    'device': data.get('device'),
                     'starttime': data.get('starttime'),
                     'endtime': data.get('endtime')
                 },
@@ -815,7 +929,6 @@ def export_device_type_timeseries(datacenter, device_type):
         response = timeseries.list_timeseries(
             session, {
                 'where': {
-                    'device': data.get('device'),
                     'starttime': data.get('starttime'),
                     'endtime': data.get('endtime')
                 },
@@ -1742,10 +1855,15 @@ def build_model(datacenter_name, model_type):
         'build model params: data=%s',
         data
     )
+    test_result = _create_test_result(datacenter_name)
+    logger.debug(
+        'datacenter %s model type %s test result: %s',
+        datacenter_name, model_type, test_result
+    )
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.build_model', (
-                datacenter_name, model_type
+                datacenter_name, model_type, test_result
             ), {
                 'data': data
             }
@@ -1773,10 +1891,15 @@ def train_model(datacenter_name, model_type):
     if not train_data:
         assert starttime is not None
         assert endtime is not None
+    test_result = _create_test_result(datacenter_name)
+    logger.debug(
+        'datacenter %s model type %s test result: %s',
+        datacenter_name, model_type, test_result
+    )
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.train_model', (
-                datacenter_name, model_type
+                datacenter_name, model_type, test_result
             ), {
                 'starttime': starttime,
                 'endtime': endtime,
@@ -1844,15 +1967,15 @@ def apply_model(datacenter_name, model_type):
     if not apply_data:
         assert starttime is not None
         assert endtime is not None
-    prediction = _create_prediction(datacenter_name)
+    test_result = _create_test_result(datacenter_name)
     logger.debug(
-        'datacenter %s model %s prediction %s',
-        datacenter_name, model_type, prediction
+        'datacenter %s model %s test_result %s',
+        datacenter_name, model_type, test_result
     )
     try:
         celery_client.celery.send_task(
             'energy_saving.tasks.apply_model', (
-                datacenter_name, model_type, prediction
+                datacenter_name, model_type, test_result
             ), {
                 'starttime': starttime,
                 'endtime': endtime,
@@ -1865,7 +1988,7 @@ def apply_model(datacenter_name, model_type):
             'failed to send apply_model to celery'
         )
     return utils.make_json_response(
-        200, {'status': True, 'prediction': prediction}
+        200, {'status': True, 'test_result': test_result}
     )
 
 

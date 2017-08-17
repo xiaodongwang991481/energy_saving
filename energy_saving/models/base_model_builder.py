@@ -62,8 +62,10 @@ class BaseModel(object):
                 )
             }
         return {
-            'predictions': pd.DataFrame(predictions),
-            'expectations': pd.DataFrame(expectations),
+            'predictions': pd.DataFrame(predictions, index=output_data.index),
+            'expectations': pd.DataFrame(
+                expectations, index=output_data.index
+            ),
             'statistics': statistics
         }
 
@@ -74,7 +76,8 @@ class BaseModel(object):
         estimators = {}
         for node in self.output_nodes:
             path = os.path.join(self.model_path, '.'.join(node))
-            shutil.rmtree(path)
+            if os.path.exists(path):
+                shutil.rmtree(path)
             estimators[node] = self.create_estimator(path)
         return estimators
 

@@ -562,8 +562,6 @@ def get_query_from_data(
         order_by = [order_by]
     fill = data.get('fill')
     aggregation = data.get('aggregation')
-    if group_by:
-        assert aggregation
     limit = data.get('limit')
     if limit:
         limit = int(limit)
@@ -730,7 +728,9 @@ def list_timeseries_internal(
     convert_timestamp=False, format_timestamp=True,
     device_type_mapping={}, device_type_types={},
     device_type_patterns={}, device_type_unit_converters={},
-    result_as_dataframe=None
+    result_as_dataframe=None,
+    measurement_callback=None,
+    data_callback=None
 ):
     dataframe = database.is_dataframe_session(session)
     if result_as_dataframe is None:
@@ -764,6 +764,16 @@ def list_timeseries_internal(
                 pattern = r'/^%s$/' % measurement_pattern
             else:
                 pattern = measurement
+            if measurement_callback:
+                if callable(measurement_callback):
+                    pattern = measurement_callback(pattern)
+                else:
+                    pattern = measurement_callback
+            if data_callback:
+                if callable(data_callback):
+                    data = data_callback(measurement, data)
+                else:
+                    data = data_callback
             query = get_query_from_data(
                 datacenter, device_type, pattern, data
             )
@@ -794,12 +804,46 @@ def list_timeseries_internal(
         return total_response
 
 
+def list_test_result_timeseries(
+    session, data, measurement_key,
+    time_precision=None,
+    convert_timestamp=False, format_timestamp=True,
+    result_as_dataframe=None,
+    device_type_mapping={}, device_type_types={}
+):
+    def generate_test_result_tags(measurement, data):
+        where = data.setdefault('where', {})
+        where['measurement_name'] = measurement
+        return data
+
+    logger.debug(
+        'list test result timeseries data %s '
+        'measurement key %s' % (
+            data, measurement_key
+        )
+    )
+    datacenter = data.pop('datacenter')
+    return list_timeseries_internal(
+        session, data, datacenter,
+        time_precision=time_precision,
+        convert_timestamp=convert_timestamp,
+        format_timestamp=format_timestamp,
+        device_type_mapping=device_type_mapping,
+        device_type_types=device_type_types,
+        result_as_dataframe=result_as_dataframe,
+        measurement_callback=measurement_key,
+        data_callback=generate_test_result_tags
+    )
+
+
 def list_timeseries(
     session, data,
     time_precision=None,
     convert_timestamp=False, format_timestamp=True,
     device_type_units={},
-    result_as_dataframe=None
+    result_as_dataframe=None,
+    measurement_callback=None,
+    data_callback=None
 ):
     logger.debug('timeseries data: %s', data)
     datacenter = data.pop('datacenter')
@@ -829,7 +873,9 @@ def list_timeseries(
         device_type_types=device_type_types,
         device_type_patterns=device_type_patterns,
         device_type_unit_converters=device_type_unit_converters,
-        result_as_dataframe=result_as_dataframe
+        result_as_dataframe=result_as_dataframe,
+        measurement_callback=measurement_callback,
+        data_callback=data_callback
     )
 
 
@@ -860,6 +906,7 @@ def timeseries_formatter(
         group_tags = dict(group_tags)
         device = group_tags['device']
         if devices and device not in devices:
+            logger.debug('ignore device %s', device)
             continue
         device_response = {}
         response.setdefault(
@@ -914,6 +961,7 @@ def generate_device_type_timeseries(
     for key, device_data in six.iteritems(data):
         device_type, measurement, device = key
         if device_type not in device_type_mapping:
+            logger.debug('ignore device type %s', device_type)
             continue
         measurement_mapping = device_type_mapping[device_type]
         measurement_types = None
@@ -936,9 +984,11 @@ def generate_device_type_timeseries(
                     real_measurement = try_measurement
                     break
         if real_measurement not in measurement_mapping:
+            logger.debug('ignore measurement %s', real_measurement)
             continue
         devices = measurement_mapping[real_measurement]
         if device not in devices:
+            logger.debug('ignore device %s', device)
             continue
         measurement_type = None
         if measurement_types:
@@ -991,11 +1041,13 @@ def write_points(
 
 
 def create_timeseries_internal(
-    session, data, datacenter,
+    session, data, datacenter, extra_tags,
     time_precision=None,
     convert_timestamp=True,
     device_type_mapping={}, device_type_types={},
-    device_type_patterns={}, device_type_unit_converters={}
+    device_type_patterns={}, device_type_unit_converters={},
+    measurement_callback=None,
+    tags_callback=None
 ):
     dataframe = database.is_dataframe_session(session)
     status = True
@@ -1005,6 +1057,14 @@ def create_timeseries_internal(
         )
     else:
         timestamp_converter = None
+    if dataframe:
+        columns = data.columns
+    else:
+        columns = data.keys()
+    logger.debug(
+        'create timeseries %s tags %s data: %s',
+        datacenter, extra_tags, columns
+    )
     for generated_tags, tag_data in generate_device_type_timeseries(
         data, device_type_mapping,
         device_type_types=device_type_types,
@@ -1013,13 +1073,25 @@ def create_timeseries_internal(
         device_type_unit_converters=device_type_unit_converters
     ):
         device_type, measurement, device = generated_tags
+        tags = {
+            'datacenter': datacenter,
+            'device_type': device_type,
+            'device': device
+        }
+        tags.update(extra_tags)
+        if tags_callback:
+            if callable(tags_callback):
+                tags = tags_callback(measurement, tags)
+            else:
+                tags = tags_callback
+        if measurement_callback:
+            if callable(measurement_callback):
+                measurement = measurement_callback(measurement)
+            else:
+                measurement = measurement_callback
         status &= write_points(
             session, measurement, tag_data,
-            {
-                'datacenter': datacenter,
-                'device_type': device_type,
-                'device': device
-            }, time_precision,
+            tags, time_precision,
             dataframe=dataframe
         )
     logger.debug(
@@ -1028,15 +1100,45 @@ def create_timeseries_internal(
     return status
 
 
+def create_test_result_timeseries(
+    session, data, tags, measurement_key,
+    time_precision=None,
+    convert_timestamp=True,
+    device_type_mapping={}, device_type_types={}
+):
+    def generate_test_result_tags(measurement, tags):
+        tags['measurement_name'] = measurement
+        return tags
+
+    logger.debug(
+        'create test result timeseries tags %s '
+        'measurement key %s' % (
+            tags, measurement_key
+        )
+    )
+    datacenter = tags.pop('datacenter')
+    return create_timeseries_internal(
+        session, data, datacenter, tags,
+        time_precision=time_precision,
+        convert_timestamp=convert_timestamp,
+        device_type_mapping=device_type_mapping,
+        device_type_types=device_type_types,
+        measurement_callback=measurement_key,
+        tags_callback=generate_test_result_tags
+    )
+
+
 def create_timeseries(
     session, data,
     tags, time_precision=None,
     convert_timestamp=True,
-    device_type_units={}
+    device_type_units={},
+    measurement_callback=None,
+    tags_callback=None
 ):
     logger.debug('create timeseries tags: %s', tags)
     datacenter = tags.pop('datacenter')
-    device_types = tags.pop('device_type')
+    device_types = tags.pop('device_type', {})
     with database.session() as db_session:
         (
             device_type_mapping, device_type_types, device_type_patterns,
@@ -1052,12 +1154,14 @@ def create_timeseries(
         device_type_patterns, convert_timestamp, device_type_units
     )
     return create_timeseries_internal(
-        session, data, datacenter, time_precision=time_precision,
+        session, data, datacenter, tags, time_precision=time_precision,
         convert_timestamp=convert_timestamp,
         device_type_mapping=device_type_mapping,
         device_type_types=device_type_types,
         device_type_patterns=device_type_patterns,
-        device_type_unit_converters=device_type_unit_converters
+        device_type_unit_converters=device_type_unit_converters,
+        measurement_callback=measurement_callback,
+        tags_callback=tags_callback
     )
 
 

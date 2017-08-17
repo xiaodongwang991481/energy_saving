@@ -67,6 +67,9 @@ stop() {
         killproc -p $PIDFILE -d 30 $CELERY
         RETVAL=$?
     fi
+    if [ "$RETVAL" == "0" ]; then
+        rm -f $PIDFILE
+    fi
     echo
 }
 
