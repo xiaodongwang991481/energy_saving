@@ -273,7 +273,7 @@ def list_database_model_fields(model_name):
 
 @app.route("/metadata/timeseries/models", methods=['GET'])
 def list_timeseries_models():
-    logging.debug('list timeseries models')
+    logger.debug('list timeseries models')
     with database.session() as session:
         result = timeseries.get_metadata(session)
     return utils.make_json_response(
@@ -283,7 +283,7 @@ def list_timeseries_models():
 
 @app.route("/metadata/timeseries/models/<datacenter>", methods=['GET'])
 def list_datacenter_timeseries_models(datacenter):
-    logging.debug('list datacenter %s timeseries models', datacenter)
+    logger.debug('list datacenter %s timeseries models', datacenter)
     with database.session() as session:
         result = timeseries.get_datacenter_metadata(session, datacenter)
     return utils.make_json_response(
@@ -296,7 +296,7 @@ def list_datacenter_timeseries_models(datacenter):
     methods=['GET']
 )
 def list_device_type_timeseries_models(datacenter, device_type):
-    logging.debug(
+    logger.debug(
         'list datacenter %s device type %s timeseries models',
         datacenter, device_type
     )
@@ -304,6 +304,38 @@ def list_device_type_timeseries_models(datacenter, device_type):
         result = timeseries.get_datacenter_device_type_metadata(
             session, datacenter, device_type
         )
+    return utils.make_json_response(
+        200, result
+    )
+
+
+@app.route(
+    "/test_result/database/<datacenter>",
+    methods=['GET']
+)
+def list_test_results(datacenter):
+    logger.debug('list %s test results', datacenter)
+    with database.session() as session:
+        result = session.query(models.TestResult).filter_by(
+            datacenter_name=datacenter
+        ).all()
+        result = [item.to_dict() for item in result]
+    return utils.make_json_response(
+        200, result
+    )
+
+
+@app.route(
+    "/test_result/database/<datacenter>/<test_result>",
+    methods=['GET']
+)
+def show_test_result(datacenter, test_result):
+    logger.debug('show %s test result %s', test_result)
+    with database.session() as session:
+        result = session.query(models.TestResult).filter_by(
+            datacenter_name=datacenter, name=test_result
+        ).first()
+        result = result.to_dict()
     return utils.make_json_response(
         200, result
     )
@@ -1874,7 +1906,7 @@ def build_model(datacenter_name, model_type):
             'failed to send build_model to celery'
         )
     return utils.make_json_response(
-        200, {'status': True}
+        200, {'status': True, 'test_result': test_result}
     )
 
 
@@ -1912,7 +1944,7 @@ def train_model(datacenter_name, model_type):
             'failed to send train_model to celery'
         )
     return utils.make_json_response(
-        200, {'status': True}
+        200, {'status': True, 'test_result': test_result}
     )
 
 

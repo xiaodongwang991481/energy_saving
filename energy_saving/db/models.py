@@ -15,6 +15,8 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.schema import ForeignKeyConstraint
 from sqlalchemy import String
 
+from energy_saving.db import exception
+
 
 BASE = declarative_base()
 logger = logging.getLogger(__name__)
@@ -35,6 +37,68 @@ def convert_column_value(value, value_type):
             value, value_type, error
         )
         raise error
+
+
+class HelperMixin(object):
+    """Provides general fuctions for all table models."""
+
+    @staticmethod
+    def type_compatible(value, column_type):
+        """Check if value type is compatible with the column type."""
+        if value is None:
+            return True
+        if not hasattr(column_type, 'python_type'):
+            return True
+        column_python_type = column_type.python_type
+        if isinstance(value, column_python_type):
+            return True
+        if issubclass(column_python_type, basestring):
+            return isinstance(value, basestring)
+        if column_python_type in [int, long]:
+            return type(value) in [int, long]
+        if column_python_type in [float]:
+            return type(value) in [float]
+        if column_python_type in [bool]:
+            return type(value) in [bool]
+        return False
+
+    def validate(self):
+        """Generate validate function to make sure the record is legal."""
+        columns = self.__mapper__.columns
+        for key, column in columns.items():
+            value = getattr(self, key)
+            if not self.type_compatible(value, column.type):
+                raise exception.InvalidParameter(
+                    'column %s value %r type is unexpected: %s' % (
+                        key, value, column.type
+                    )
+                )
+
+    def to_dict(self, fields=None):
+        """General function to convert record to dict.
+
+        Convert all columns not starting with '_' to
+        {<column_name>: <column_value>}
+        """
+        keys = self.__mapper__.columns.keys()
+        if fields:
+            if isinstance(fields, basestring):
+                fields = [fields]
+            filters = []
+            for field in fields:
+                filters.extend(field.split(','))
+            keys = [key for key in keys if key in filters]
+        dict_info = {}
+        for key in keys:
+            if key.startswith('_'):
+                continue
+            try:
+                value = getattr(self, key)
+            except Exception as error:
+                logging.exception(error)
+                raise error
+            dict_info[key] = value
+        return dict_info
 
 
 class LocationMixin(object):
@@ -67,10 +131,12 @@ class ParamMixin(object):
     unit = Column(String(36))
     max = Column(Float())
     min = Column(Float())
+    differentiation_max = Column(Float())
+    differentiation_min = Column(Float())
     possible_values = Column(JSON)
 
 
-class Datacenter(BASE, LocationMixin):
+class Datacenter(BASE, LocationMixin, HelperMixin):
     """Datacenter table."""
     __tablename__ = 'datacenter'
     name = Column(
@@ -172,7 +238,7 @@ class Datacenter(BASE, LocationMixin):
         return 'Datacenter{name=%s}' % self.name
 
 
-class PowerSupply(BASE, LocationMixin):
+class PowerSupply(BASE, LocationMixin, HelperMixin):
     """power supply table."""
     __tablename__ = 'power_supply'
     datacenter_name = Column(
@@ -202,7 +268,7 @@ class PowerSupply(BASE, LocationMixin):
         )
 
 
-class PowerSupplyAttr(BASE, AttrMixin):
+class PowerSupplyAttr(BASE, AttrMixin, HelperMixin):
     """power supply attribute table."""
     __tablename__ = 'power_supply_attribute'
     datacenter_name = Column(
@@ -235,7 +301,7 @@ class PowerSupplyAttr(BASE, AttrMixin):
         )
 
 
-class PowerSupplyAttrData(BASE):
+class PowerSupplyAttrData(BASE, HelperMixin):
     """power supply attribute data table."""
     __tablename__ = 'power_supply_attribute_data'
     datacenter_name = Column(
@@ -277,7 +343,7 @@ class PowerSupplyAttrData(BASE):
         )
 
 
-class ControllerPowerSupply(BASE, LocationMixin):
+class ControllerPowerSupply(BASE, LocationMixin, HelperMixin):
     """controller power supply table."""
     __tablename__ = 'controller_power_supply'
     datacenter_name = Column(
@@ -307,7 +373,7 @@ class ControllerPowerSupply(BASE, LocationMixin):
         )
 
 
-class ControllerPowerSupplyAttr(BASE, AttrMixin):
+class ControllerPowerSupplyAttr(BASE, AttrMixin, HelperMixin):
     """power supply attribute table."""
     __tablename__ = 'controller_power_supply_attribute'
     datacenter_name = Column(
@@ -340,7 +406,7 @@ class ControllerPowerSupplyAttr(BASE, AttrMixin):
         )
 
 
-class ControllerPowerSupplyAttrData(BASE):
+class ControllerPowerSupplyAttrData(BASE, HelperMixin):
     """controller power supply attribute data table."""
     __tablename__ = 'controller_power_supply_attribute_data'
     datacenter_name = Column(
@@ -386,7 +452,7 @@ class ControllerPowerSupplyAttrData(BASE):
         )
 
 
-class Sensor(BASE, LocationMixin):
+class Sensor(BASE, LocationMixin, HelperMixin):
     """Sensor table."""
     __tablename__ = 'sensor'
     datacenter_name = Column(
@@ -416,7 +482,7 @@ class Sensor(BASE, LocationMixin):
         )
 
 
-class SensorAttr(BASE, AttrMixin):
+class SensorAttr(BASE, AttrMixin, HelperMixin):
     """Sensor attribute table."""
     __tablename__ = 'sensor_attribute'
     datacenter_name = Column(
@@ -442,16 +508,6 @@ class SensorAttr(BASE, AttrMixin):
         cascade='all, delete-orphan',
         backref=backref('attribute', viewonly=True)
     )
-    slo = relationship(
-        'SensorAttrSLO',
-        foreign_keys=(
-            '[SensorAttrSLO.datacenter_name,'
-            'SensorAttrSLO.sensor_attribute_name]'
-        ),
-        passive_deletes=True,
-        cascade='all, delete-orphan',
-        backref=backref('attribute', viewonly=True)
-    )
 
     def __str__(self):
         return 'SensorAttr[datacenter_name=%s,name=%s]' % (
@@ -459,36 +515,7 @@ class SensorAttr(BASE, AttrMixin):
         )
 
 
-class SensorAttrSLO(BASE):
-    """Sensor attribute slo."""
-    __tablename__ = 'sensor_attribute_slo'
-    datacenter_name = Column(
-        String(36),
-        primary_key=True
-    )
-    sensor_attribute_name = Column(String(36), primary_key=True)
-    min_threshold = Column(Float())
-    max_threshold = Column(Float())
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ['datacenter_name'],
-            ['datacenter.name'],
-            onupdate="CASCADE", ondelete="CASCADE"
-        ),
-        ForeignKeyConstraint(
-            ['datacenter_name', 'sensor_attribute_name'],
-            ['sensor_attribute.datacenter_name', 'sensor_attribute.name'],
-            onupdate="CASCADE", ondelete="CASCADE"
-        )
-    )
-
-    def __str__(self):
-        return 'SensorAttrSLO[datacenter_name=%s,sensor_attribute_name=%s]' % (
-            self.datacenter_name, self.sensor_attribute_name
-        )
-
-
-class SensorAttrData(BASE):
+class SensorAttrData(BASE, HelperMixin):
     """Sensor attribute data table."""
     __tablename__ = 'sensor_attribute_data'
     datacenter_name = Column(
@@ -530,7 +557,7 @@ class SensorAttrData(BASE):
         )
 
 
-class Controller(BASE, LocationMixin):
+class Controller(BASE, LocationMixin, HelperMixin):
     """controller table."""
     __tablename__ = 'controller'
     datacenter_name = Column(
@@ -567,7 +594,7 @@ class Controller(BASE, LocationMixin):
         )
 
 
-class ControllerAttr(BASE, AttrMixin):
+class ControllerAttr(BASE, AttrMixin, HelperMixin):
     """controller attribute table."""
     __tablename__ = 'controller_attribute'
     datacenter_name = Column(
@@ -602,7 +629,7 @@ class ControllerAttr(BASE, AttrMixin):
         )
 
 
-class ControllerAttrData(BASE):
+class ControllerAttrData(BASE, HelperMixin):
     """controller attribute data table."""
     __tablename__ = 'controller_attribute_data'
     datacenter_name = Column(
@@ -644,7 +671,7 @@ class ControllerAttrData(BASE):
         )
 
 
-class ControllerParam(BASE, ParamMixin):
+class ControllerParam(BASE, ParamMixin, HelperMixin):
     """controller param table."""
     __tablename__ = 'controller_parameter'
     datacenter_name = Column(
@@ -680,7 +707,7 @@ class ControllerParam(BASE, ParamMixin):
         )
 
 
-class ControllerParamData(BASE):
+class ControllerParamData(BASE, HelperMixin):
     """controller param data table."""
     __tablename__ = 'controller_parameter_data'
     datacenter_name = Column(
@@ -722,7 +749,7 @@ class ControllerParamData(BASE):
         )
 
 
-class EnvironmentSensor(BASE, LocationMixin):
+class EnvironmentSensor(BASE, LocationMixin, HelperMixin):
     """Environment sensor table."""
     __tablename__ = 'environment_sensor'
     datacenter_name = Column(
@@ -749,7 +776,7 @@ class EnvironmentSensor(BASE, LocationMixin):
         )
 
 
-class EnvironmentSensorAttr(BASE, AttrMixin):
+class EnvironmentSensorAttr(BASE, AttrMixin, HelperMixin):
     """Environment sensor attribute table."""
     __tablename__ = 'environment_sensor_attribute'
     datacenter_name = Column(
@@ -785,7 +812,7 @@ class EnvironmentSensorAttr(BASE, AttrMixin):
         )
 
 
-class EnvironmentSensorAttrData(BASE):
+class EnvironmentSensorAttrData(BASE, HelperMixin):
     """Environment sensor attribute data table."""
     __tablename__ = 'environment_sensor_attribute_data'
     datacenter_name = Column(
@@ -830,7 +857,7 @@ class EnvironmentSensorAttrData(BASE):
         )
 
 
-class TestResult(BASE):
+class TestResult(BASE, HelperMixin):
     """TestResult table."""
     __tablename__ = 'test_result'
     datacenter_name = Column(

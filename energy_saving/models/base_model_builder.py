@@ -14,19 +14,24 @@ logger = logging.getLogger(__name__)
 
 class BaseModel(object):
     def __init__(
-        self, model_type, model_path, input_nodes, output_nodes
+        self, model_type, model_path, input_nodes, output_nodes,
+        input_nodes_device_type_types,
+        output_nodes_device_type_types
     ):
         self.model_type = model_type
         self.model_path = model_path
         self.input_nodes = input_nodes
         self.output_nodes = output_nodes
-        self.features = [
-            tf.contrib.layers.real_valued_column(
-                'inputs', dimension=len(self.input_nodes)
-            )
-        ]
-        logger.debug('features: %s', self.features)
+        self.input_nodes_device_type_types = input_nodes_device_type_types
+        self.output_nodes_device_type_types = output_nodes_device_type_types
+        self.clean_estimators()
         self.estimators = self.create_estimators()
+
+    def clean_estimators(self):
+        for node in self.output_nodes:
+            path = os.path.join(self.model_path, '.'.join(node))
+            if os.path.exists(path):
+                shutil.rmtree(path)
 
     def get_test_result_mse(self, prediction, output):
         logger.debug('prediction: %s', prediction)
@@ -157,17 +162,23 @@ class BaseModel(object):
 @six.add_metaclass(abc.ABCMeta)
 class BaseModelBuilder(object):
     def create_model(
-        self, model_type, model_path, input_nodes, output_nodes
+        self, model_type, model_path, input_nodes, output_nodes,
+        input_nodes_device_type_types,
+        output_nodes_device_type_types
     ):
         return BaseModel(
-            model_type, model_path, input_nodes, output_nodes
+            model_type, model_path, input_nodes, output_nodes,
+            input_nodes_device_type_types,
+            output_nodes_device_type_types
         )
 
     def get_model(
-        self, model_type, model_path, input_nodes, output_nodes
+        self, model_type, model_path, input_nodes, output_nodes,
+        input_nodes_device_type_types, output_nodes_device_type_types
     ):
         return self.create_model(
-            model_type, model_path, input_nodes, output_nodes
+            model_type, model_path, input_nodes, output_nodes,
+            input_nodes_device_type_types, output_nodes_device_type_types
         )
 
     def __str__(self):

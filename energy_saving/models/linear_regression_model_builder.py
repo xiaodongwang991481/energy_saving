@@ -11,10 +11,18 @@ class LinearRegression(
     base_model_builder.BaseModel
 ):
     def __init__(
-        self, model_type, model_path, input_nodes, output_nodes
+        self, model_type, model_path, input_nodes, output_nodes,
+        inpput_nodes_device_type_types, output_nodes_device_type_types,
     ):
+        self.features = [
+            tf.contrib.layers.real_valued_column(
+                'inputs', dimension=len(input_nodes)
+            )
+        ]
+        logger.debug('features: %s', self.features)
         super(LinearRegression, self).__init__(
-            model_type, model_path, input_nodes, output_nodes
+            model_type, model_path, input_nodes, output_nodes,
+            inpput_nodes_device_type_types, output_nodes_device_type_types
         )
 
     def create_estimator(self, model_path):
@@ -29,8 +37,10 @@ class LinearRegressionBuilder(
     base_model_builder.BaseModelBuilder
 ):
     def create_model(
-        self, model_type, model_path, input_nodes, output_nodes
+        self, model_type, model_path, input_nodes, output_nodes,
+        inpput_nodes_device_type_types, output_nodes_device_type_types
     ):
         return LinearRegression(
-            model_type, model_path, input_nodes, output_nodes
+            model_type, model_path, input_nodes, output_nodes,
+            inpput_nodes_device_type_types, output_nodes_device_type_types
         )

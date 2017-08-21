@@ -23,6 +23,12 @@ def _get_attribute_dict(attribute):
             'unit': attribute.unit,
             'mean': attribute.mean,
             'deviation': attribute.deviation,
+            'differentiation_mean': attribute.differentiation_mean,
+            'differentiation_deviation': attribute.differentiation_deviation,
+            'max': attribute.max,
+            'min': attribute.min,
+            'differentiation_max': attribute.differentiation_max,
+            'differentiation_min': attribute.differentiation_min,
             'pattern': attribute.measurement_pattern
         }
     }
@@ -34,6 +40,14 @@ def _set_attribute_dict(attribute, data):
         attribute.mean = attribute_data['mean']
     if 'deviation' in attribute_data:
         attribute.deviation = attribute_data['deviation']
+    if 'differentiation_mean' in attribute_data:
+        attribute.differentiation_mean = attribute_data[
+            'differentiation_mean'
+        ]
+    if 'differentiation_deviation' in attribute_data:
+        attribute.differentiation_deviation = attribute_data[
+            'differentiation_deviation'
+        ]
 
 
 def _get_parameter_dict(parameter):
@@ -44,8 +58,12 @@ def _get_parameter_dict(parameter):
             'unit': parameter.unit,
             'min': parameter.min,
             'max': parameter.max,
+            'differentiation_max': parameter.differentiation_max,
+            'differentiation_min': parameter.differentiation_min,
             'mean': None,
             'deviation': None,
+            'differentiation_mean': None,
+            'differentiation_deviation': None,
             'pattern': None
         }
     }
@@ -351,7 +369,7 @@ def update_timeseries_metadata(
                     }
                 },
                 time_precision=None,
-                convert_timestamp=False, format_timestamp=True,
+                convert_timestamp=True, format_timestamp=False,
                 device_type_units=device_type_units,
                 result_as_dataframe=True
             )
@@ -361,8 +379,24 @@ def update_timeseries_metadata(
             deviation = result.std()
             assert not np.isnan(mean)
             assert not np.isnan(deviation)
+            time_offset = datetime.timedelta(seconds=time_interval)
+            differentiation_response = (
+                response.shift(-1, time_offset) - response
+            )
+            differentiation_response = differentiation_response.dropna()
+            differentiation_result = differentiation_response.values
+            differentiation_mean = differentiation_result.mean()
+            differentiation_deviation = differentiation_result.std()
+            assert not np.isnan(differentiation_mean)
+            assert not np.isnan(differentiation_deviation)
             measurement_metadata['attribute']['mean'] = mean
             measurement_metadata['attribute']['deviation'] = deviation
+            measurement_metadata['attribute']['differentiation_mean'] = (
+                differentiation_mean
+            )
+            measurement_metadata['attribute']['differentiation_deviation'] = (
+                differentiation_deviation
+            )
     logger.debug('updated datacenter metadata: %s', datacenter_metadata)
     with database.session() as db_session:
         set_datacenter_metadata(db_session, datacenter, datacenter_metadata)

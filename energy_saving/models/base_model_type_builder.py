@@ -96,7 +96,7 @@ class BaseModelType(object):
         )
 
     def get_node_detransformer(self, detransformer_name):
-        return self.DENODE_TRANSFORMERS.get(
+        return self.NODE_DETRANSFORMERS.get(
             detransformer_name, self.NODE_DETRANSFORMERS['default']
         )
 
@@ -142,11 +142,15 @@ class BaseModelType(object):
         if not self.built:
             self.load_nodes()
             self.built = True
-            model_path = self.get_file(self.config['model_path'])
+            model_path = self.get_file(
+                '%s.%s' % (self.builder.name, self.config['model'])
+            )
             self.model = self.model_builder.get_model(
                 self, model_path,
                 [self.get_node_key(node) for node in self.input_nodes],
-                [self.get_node_key(node) for node in self.output_nodes]
+                [self.get_node_key(node) for node in self.output_nodes],
+                self.get_input_nodes_device_type_types(),
+                self.get_output_nodes_device_type_types()
             )
             logger.debug('built model is loaded')
 
@@ -219,7 +223,13 @@ class BaseModelType(object):
                         ]['mean'],
                         'deviation': measurement_metadata[
                             'attribute'
-                        ]['deviation']
+                        ]['deviation'],
+                        'differentiation_mean': measurement_metadata[
+                            'attribute'
+                        ]['differentiation_mean'],
+                        'differentiation_deviation': measurement_metadata[
+                            'attribute'
+                        ]['differentiation_deviation']
                     })
         return nodes
 
@@ -245,14 +255,18 @@ class BaseModelType(object):
 
     def build(self, data=None):
         logger.debug('%s build model', self)
-        self.create_nodes(data)
-        model_path = self.get_file(self.config['model_path'])
-        self.model = self.model_builder.get_model(
-            self, model_path,
-            [self.get_node_key(node) for node in self.input_nodes],
-            [self.get_node_key(node) for node in self.output_nodes]
-        )
-        self.save_built()
+        try:
+            self.create_nodes(data)
+            model_path = self.get_file(self.config['model_path'])
+            self.model = self.model_builder.get_model(
+                self, model_path,
+                [self.get_node_key(node) for node in self.input_nodes],
+                [self.get_node_key(node) for node in self.output_nodes]
+            )
+            self.save_built()
+        except Exception as error:
+            logger.exception(error)
+            raise error
 
     def _get_data_from_timeseries(
             self, session,
@@ -363,23 +377,13 @@ class BaseModelType(object):
         if output_data is not None:
             logger.debug('output data columns: %s', output_data.columns)
             logger.debug('output data index: %s', output_data.index)
-        return (
-            self.process_data(
-                input_data, output_data
-            )
-        )
-
-    def test(self, starttime=None, endtime=None, data=None):
-        logger.debug('%s test model', self)
-        self.load_trained()
-        input_data, output_data = self.get_data(
-            starttime=starttime, endtime=endtime, data=data
-        )
-        result = self.model.test(
+        input_data, output_data = self.clean_data(
             input_data, output_data
         )
-        result = self.recovery_result(result)
-        return result
+        input_data, output_data = self.merge_data(
+            input_data, output_data
+        )
+        return input_data, output_data
 
     def is_built(self):
         if not self.built:
@@ -392,8 +396,17 @@ class BaseModelType(object):
             logger.error('%s is not trained yet', self)
             raise Exception('%s is not trained' % self)
 
-    def process_nodes(self):
-        return self.input_nodes, self.output_nodes
+    def process_input_nodes(self, input_nodes):
+        return input_nodes
+
+    def process_output_nodes(self, output_nodes):
+        return output_nodes
+
+    def process_nodes(self, input_nodes, output_nodes):
+        return (
+            self.process_input_nodes(input_nodes),
+            self.process_output_nodes(output_nodes)
+        )
 
     def get_node_mapping(self, nodes):
         node_map = {}
@@ -431,15 +444,30 @@ class BaseModelType(object):
             self.normalize_data_by_node(data, node, normralized_data)
         return pd.DataFrame(normralized_data)
 
-    def normalize_data(self, input_data, output_data):
+    def normalize_input_data(self, input_data):
+        logger.debug('normalize input data %s', input_data.columns)
         if input_data is not None:
             input_data = self.normalize_data_by_nodes(
                 input_data, self.input_nodes
             )
+        return input_data
+
+    def normalize_output_data(self, output_data):
+        logger.debug('normalize output data %s', output_data.columns)
         if output_data is not None:
             output_data = self.normalize_data_by_nodes(
                 output_data, self.output_nodes
             )
+        return output_data
+
+    def normalize_data(self, input_data, output_data):
+        logger.debug('normalize data')
+        input_data = self.normalize_input_data(
+            input_data
+        )
+        output_data = self.normalize_output_data(
+            output_data
+        )
         return input_data, output_data
 
     def denormalize_data_by_node(self, data, node, denormalized_data={}):
@@ -455,15 +483,22 @@ class BaseModelType(object):
         return pd.DataFrame(denormalized_data)
 
     def denormalize_data(self, output_data):
+        logger.debug('denormalize_data %s', output_data.columns)
         if output_data is not None:
             output_data = self.denormalize_data_by_nodes(
                 output_data, self.output_nodes
             )
         return output_data
 
-    def recovery_data(self, output_data):
-        output_data = self.denormalize_data(output_data)
-        output_data = self.detransform_data(output_data)
+    def recover_data(self, transformed_output_data, output_data):
+        logger.debug('recover data')
+        transformed_output_data = self.denormalize_data(
+            transformed_output_data
+        )
+        output_data = self.detransform_data(
+            transformed_output_data, output_data
+        )
+        output_data = self.clean_output_data(output_data)
         return output_data
 
     def generate_device_type_mapping_by_nodes(self, nodes):
@@ -480,8 +515,17 @@ class BaseModelType(object):
             devices.append(device)
         return device_type_mapping
 
-    def generate_device_type_mapping(self):
+    def generate_input_nodes_device_type_mapping(self):
+        return self.generate_device_type_mapping_by_nodes(self.input_nodes)
+
+    def generate_output_nodes_device_type_mapping(self):
         return self.generate_device_type_mapping_by_nodes(self.output_nodes)
+
+    def generate_device_type_mapping(self):
+        return (
+            self.generate_input_nodes_device_type_mapping(),
+            self.generate_output_nodes_device_type_mapping()
+        )
 
     def generate_device_type_types_by_nodes(self, nodes):
         device_type_types = {}
@@ -495,19 +539,49 @@ class BaseModelType(object):
             measurement_types[measurement] = measurement_type
         return device_type_types
 
-    def generate_device_type_types(self):
+    def generate_input_nodes_device_type_types(self):
+        return self.generate_device_type_types_by_nodes(self.input_nodes)
+
+    def generate_output_nodes_device_type_types(self):
         return self.generate_device_type_types_by_nodes(self.output_nodes)
 
-    def recovery_result(self, result):
+    def generate_device_type_types(self):
+        return (
+            self.generate_input_nodes_device_type_types(),
+            self.generate_output_nodes_device_type_types()
+        )
+
+    def recover_prediction_data(self, transformed_data, output_data):
+        return self.recover_data(transformed_data, output_data)
+
+    def recover_expectation_data(self, transformed_data, output_data):
+        return output_data
+
+    def recover_result(self, result, output_data):
         if 'predictions' in result:
-            result['predictions'] = self.recovery_data(result['predictions'])
+            result['predictions'] = self.recover_prediction_data(
+                result['predictions'], output_data
+            )
         if 'expectations' in result:
-            result['expectations'] = self.recovery_data(result['expectations'])
-        result['device_type_mapping'] = self.generate_device_type_mapping()
-        result['device_type_types'] = self.generate_device_type_types()
+            result['expectations'] = self.recover_expectation_data(
+                result['expectations'], output_data
+            )
+        result['device_type_mapping'] = (
+            self.generate_output_nodes_device_type_mapping()
+        )
+        result['device_type_types'] = (
+            self.generate_output_nodes_device_type_types()
+        )
         return result
 
+    def clean_input_data(self, input_data):
+        return input_data.dropna()
+
+    def clean_output_data(self, output_data):
+        return output_data.dropna()
+
     def clean_data(self, input_data, output_data):
+        logger.debug('clean data')
         if input_data is not None and output_data is not None:
             total = pd.concat(
                 [input_data, output_data], axis=1,
@@ -517,9 +591,9 @@ class BaseModelType(object):
             input_data = total['input']
             output_data = total['output']
         elif input_data is not None:
-            input_data = input_data.dropna()
+            input_data = self.clean_input_data(input_data)
         elif output_data is not None:
-            output_data = output_data.dropna()
+            output_data = self.clean_output_data(output_data)
         return input_data, output_data
 
     def merge_data_by_nodes(self, data, nodes):
@@ -535,14 +609,18 @@ class BaseModelType(object):
         return (device_type, measurement, device)
 
     def merge_data_by_node(self, data, node, merged_data={}):
-        node_key = self.get_node_key(node)
         node_data = None
+        if 'original_node' in node:
+            node = node['original_node']
+        node_key = self.get_node_key(node)
         if 'sub_nodes' in node:
             sub_node_dataframe = {}
+            sub_node_keys = []
             for sub_node in node['sub_nodes']:
                 sub_node_key = self.get_node_key(sub_node)
-                if sub_node_key in data:
-                    sub_node_dataframe[sub_node_key] = data[sub_node_key]
+                sub_node_keys.append(sub_node_key)
+                sub_node_dataframe[sub_node_key] = data[sub_node_key]
+            logger.debug('merge %s to %s', sub_node_keys, node_key)
             if sub_node_dataframe:
                 node_data = self.get_sub_nodes_aggregator(
                     node.get('sub_nodes_aggregator', None)
@@ -550,20 +628,35 @@ class BaseModelType(object):
                     sub_node_dataframe
                 ))
         else:
-            if node_key in data:
-                node_data = data[node_key]
+            logger.debug('copy %s to merged data', node_key)
+            node_data = data[node_key]
         if node_data is not None:
             merged_data[node_key] = node_data
 
-    def merge_data(self, input_data, output_data):
+    def merge_input_data(self, input_data):
+        logger.debug('merge input data: %s', input_data.columns)
         if input_data is not None:
             input_data = self.merge_data_by_nodes(
                 input_data, self.input_nodes
             )
+        return input_data
+
+    def merge_output_data(self, output_data):
+        logger.debug('merge output data: %s', output_data.columns)
         if output_data is not None:
             output_data = self.merge_data_by_nodes(
                 output_data, self.output_nodes
             )
+        return output_data
+
+    def merge_data(self, input_data, output_data):
+        logger.debug('merge data')
+        input_data = self.merge_input_data(
+            input_data
+        )
+        output_data = self.merge_output_data(
+            output_data
+        )
         return input_data, output_data
 
     def transform_data_by_node(self, data, node, transformed_data={}):
@@ -572,16 +665,18 @@ class BaseModelType(object):
         if 'original_node' in node:
             original_node = node['original_node']
             original_node_key = self.get_node_key(original_node)
-            if original_node_key in data:
-                orginal_data = data[original_node_key]
-                node_data = self.get_node_transformer(
-                    node.get('transformer', None)
-                )(orginal_data)
+            logger.debug(
+                'transform %s to %s',
+                original_node_key, node_key
+            )
+            orginal_data = data[original_node_key]
+            node_data = self.get_node_transformer(
+                node.get('transformer', None)
+            )(orginal_data)
         else:
-            if node_key in data:
-                node_data = data[node_key]
-        if node_data is not None:
-            transformed_data[node_key] = node_data
+            logger.debug('copy %s to transformed data', node_key)
+            node_data = data[node_key]
+        transformed_data[node_key] = node_data
 
     def transform_data_by_nodes(self, data, nodes):
         transformed_data = {}
@@ -589,60 +684,85 @@ class BaseModelType(object):
             self.transform_data_by_node(data, node, transformed_data)
         return pd.DataFrame(transformed_data)
 
-    def transform_data(self, input_data, output_data):
+    def transform_input_data(self, input_data):
+        logger.debug('transform input data: %s', input_data.columns)
         if input_data is not None:
             input_data = self.transform_data_by_nodes(
                 input_data, self.input_nodes
             )
+        logger.debug('transformed input data: %s', input_data.columns)
+        return input_data
+
+    def transform_output_data(self, output_data):
+        logger.debug('tranform output data: %s', output_data.columns)
         if output_data is not None:
             output_data = self.transform_data_by_nodes(
                 output_data, self.output_nodes
             )
+        return output_data
+
+    def transform_data(self, input_data, output_data):
+        logger.debug('transform data')
+        input_data = self.transform_input_data(
+            input_data
+        )
+        output_data = self.transform_output_data(
+            output_data
+        )
         return input_data, output_data
 
-    def detransform_data_by_node(self, data, node, detransformed_data={}):
+    def detransform_data_by_node(
+        self, transformed_data, data, node, detransformed_data={}
+    ):
         node_key = self.get_node_key(node)
         node_data = None
-        if node_key in data:
-            node_data = data[node_key]
+        node_data = transformed_data[node_key]
         if 'original_node' in node:
             original_node = node['original_node']
             original_node_key = self.get_node_key(original_node)
-            if original_node_key in data:
-                orginal_data = data[original_node_key]
-                node_data = self.get_node_detransformer(
-                    node.get('detransformer', None)
-                )(node_data, orginal_data)
-        if node_data is not None:
-            detransformed_data[node_key] = node_data
+            logger.debug(
+                'detransform %s to %s',
+                node_key, original_node_key
+            )
+            node_key = original_node_key
+            orginal_data = data[node_key]
+            node_data = self.get_node_detransformer(
+                node.get('detransformer', None)
+            )(node_data, orginal_data)
+        detransformed_data[node_key] = node_data
 
-    def detransform_data_by_nodes(self, data, nodes):
+    def detransform_data_by_nodes(self, transformed_data, data, nodes):
         detransformed_data = {}
         for node in nodes:
-            self.detransform_data_by_node(data, node, detransformed_data)
+            self.detransform_data_by_node(
+                transformed_data, data, node, detransformed_data
+            )
         return pd.DataFrame(detransformed_data)
 
-    def detransform_data(self, output_data):
-        if output_data is not None:
+    def detransform_data(
+        self, transformed_output_data, output_data
+    ):
+        logger.debug('detransform data: %s', transformed_output_data.columns)
+        if (
+            transformed_output_data is not None and
+            output_data is not None
+        ):
             output_data = self.detransform_data_by_nodes(
+                transformed_output_data,
                 output_data, self.output_nodes
             )
+        logger.debug('detransformed data: %s', output_data.columns)
         return output_data
 
     def process_data(self, input_data, output_data):
-        input_data, output_data = self.clean_data(
-            input_data, output_data
-        )
-        input_data, output_data = self.merge_data(
-            input_data, output_data
-        )
+        logger.debug('process data')
         input_data, output_data = self.transform_data(
             input_data, output_data
         )
-        input_data, output_data = self.clean_data(
+        input_data, output_data = self.normalize_data(
             input_data, output_data
         )
-        input_data, output_data = self.normalize_data(
+        input_data, output_data = self.clean_data(
             input_data, output_data
         )
         return input_data, output_data
@@ -650,27 +770,67 @@ class BaseModelType(object):
     def train(self, starttime=None, endtime=None, data=None):
         logger.debug('%s train model', self)
         self.load_built()
-        input_data, output_data = self.get_data(
-            starttime=starttime, endtime=endtime, data=data
-        )
-        result = self.model.train(
-            input_data, output_data
-        )
-        self.save_trained()
-        result = self.recovery_result(result)
-        return result
+        try:
+            input_data, output_data = self.get_data(
+                starttime=starttime, endtime=endtime, data=data
+            )
+            (
+                processed_input_data, processed_output_data
+            ) = self.process_data(
+                input_data, output_data
+            )
+            result = self.model.train(
+                processed_input_data, processed_output_data
+            )
+            self.save_trained()
+            result = self.recover_result(result, output_data)
+            return result
+        except Exception as error:
+            logger.exception(error)
+            raise error
+
+    def test(self, starttime=None, endtime=None, data=None):
+        logger.debug('%s test model', self)
+        self.load_trained()
+        try:
+            input_data, output_data = self.get_data(
+                starttime=starttime, endtime=endtime, data=data
+            )
+            (
+                processed_input_data, processed_output_data
+            ) = self.process_data(
+                input_data, output_data
+            )
+            result = self.model.test(
+                processed_input_data, processed_output_data
+            )
+            result = self.recover_result(result, output_data)
+            return result
+        except Exception as error:
+            logger.exception(error)
+            raise error
 
     def apply(self, starttime=None, endtime=None, data=None):
         logger.debug('%s apply model', self)
         self.load_trained()
-        input_data, _ = self.get_data(
-            starttime=starttime, endtime=endtime, data=data,
-            get_output=False
-        )
-        result = self.model.apply(
-            input_data
-        )
-        return result
+        try:
+            input_data, output_data = self.get_data(
+                starttime=starttime, endtime=endtime, data=data,
+                get_output=False
+            )
+            (
+                processed_input_data, processed_output_data
+            ) = self.processed_data(
+                input_data, output_data
+            )
+            result = self.model.apply(
+                processed_input_data
+            )
+            result = self.recover_result(result, output_data)
+            return result
+        except Exception as error:
+            logger.exception(error)
+            raise error
 
     def __str__(self):
         return '%s[builder=%s, datacenter=%s]' % (

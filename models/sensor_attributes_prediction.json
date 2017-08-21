@@ -11,9 +11,9 @@
         }
     },
     "outputs": {
-        "controller_power_supply_attribute": {"power": []}
+        "sensor_attribute": {}
     },
-    "nodes": "pue_prediction_nodes.json",
+    "nodes": "sensor_attributes_prediction_nodes.json",
     "model": "linear_regression",
-    "model_config": "pue_prediction_model_config.json"
+    "model_config": "sensor_attributes_prediction_model_config.json"
 }
