@@ -59,8 +59,14 @@ class BaseModelType(object):
             'model type %s config: %s',
             self.builder.name, self.config
         )
-        self.built = False
-        self.trained = False
+        self.set_built(False)
+        self.set_trained(False)
+
+    def set_built(self, built):
+        self.built = built
+
+    def set_trained(self, trained):
+        self.trained = trained
 
     def sum_sub_nodes_data(self, data):
         return data.sum(axis=1, skipna=False)
@@ -143,19 +149,21 @@ class BaseModelType(object):
         self.initialize_nodes_relationship()
 
     def load_built(self):
-        logger.debug('load built? %s', self.built)
-        if not self.built:
+        built = self.is_built()
+        logger.debug('load built? %s', built)
+        if not built:
             self.load_nodes()
             self.create_model()
-            self.built = True
+            self.set_built(True)
             logger.debug('built model is loaded')
 
     def load_trained(self):
         self.load_built()
-        logger.debug('load trained? %s', self.trained)
-        if not self.trained:
+        trained = self.is_trained()
+        logger.debug('load trained? %s', trained)
+        if not trained:
             self.load_model()
-            self.trained = True
+            self.set_trained(True)
             logger.debug('trained model is loaded')
 
     def save_model(self):
@@ -180,13 +188,13 @@ class BaseModelType(object):
     def save_built(self):
         logger.debug('save built model')
         self.save_nodes()
-        self.built = True
-        self.trained = False
+        self.set_built(True)
+        self.set_trained(False)
 
     def save_trained(self):
         logger.debug('save trained model')
         self.save_model()
-        self.trained = True
+        self.set_trained(True)
 
     def _create_nodes(self, patterns):
         nodes = []
@@ -315,7 +323,8 @@ class BaseModelType(object):
             '%s build model force=%s',
             self, force
         )
-        if force or not self.built:
+        built = self.is_built()
+        if force or not built:
             try:
                 self.create_nodes(data)
                 self.create_model(reset=True)
@@ -455,15 +464,10 @@ class BaseModelType(object):
         return input_data, output_data
 
     def is_built(self):
-        if not self.built:
-            logger.error('%s is not built yet', self)
-            raise Exception('%s is not built' % self)
+        return self.built
 
     def is_trained(self):
-        self.is_built()
-        if not self.trained:
-            logger.error('%s is not trained yet', self)
-            raise Exception('%s is not trained' % self)
+        return self.is_built() and self.trained
 
     def unique_nodes(self, nodes):
         new_nodes = []

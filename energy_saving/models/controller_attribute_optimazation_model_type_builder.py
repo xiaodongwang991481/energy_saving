@@ -53,6 +53,18 @@ class ControllerAttrOptimazationModelType(
     def save_model(self):
         pass
 
+    def is_built(self):
+        return (
+            self.pue_prediction.is_built() and
+            self.sensor_attributes_predition.is_built()
+        )
+
+    def is_trained(self):
+        return (
+            self.pue_prediction.is_trained() and
+            self.sensor_attributes_predition.is_trained()
+        )
+
     def create_nodes(self, data=None):
         self.input_nodes = self.unique_nodes(
             self.pue_prediction.input_nodes +
