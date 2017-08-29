@@ -4,14 +4,15 @@ import {Route, Switch} from "react-router-dom"
 import ModelList from "../components/model-list"
 import {LinkContainer} from "react-router-bootstrap"
 import NotFound from "../components/noFound"
-import MeasurementList from "../components/measurement-list"
-import ShowData from "../components/show-data"
+import MeasurementList from "../components/measurementList"
+import ShowData from "../components/showData"
 import {connect} from "react-redux"
 import Action from "../components/action"
 import TimeSelectDialog from "../components/element/timeSelectDialog"
-import DeviceTypeDetail from "../components/deviceTypeDetail"
-import MeasurementDetail from "../components/measurementDetail"
-import DeviceDetail from "../components/deviceDetail"
+import Task from "../components/task"
+import TaskDetail from "../components/taskDetail"
+
+
 
 const loadingImage = require("../images/loading.gif");
 
@@ -47,6 +48,7 @@ export default class NormalLayout extends React.Component {
                                                                    href="javascript:void(0);">Models</NavItem></LinkContainer>
                         <LinkContainer to={"/measurement-list"}><NavItem eventKey={2} href="javascript:void(0);">Measurement</NavItem></LinkContainer>
                         <LinkContainer to={"/action"}><NavItem eventKey={3} href="javascript:void(0);">Action</NavItem></LinkContainer>
+                        <LinkContainer to={"/task"}><NavItem eventKey={4} href="javascript:void(0);">Task</NavItem></LinkContainer>
                         {/*<NavDropdown eventKey={3} title="Dropdown" id="basic-nav-dropdown">*/}
                             {/*<MenuItem eventKey={3.1}>Action</MenuItem>*/}
                             {/*<MenuItem eventKey={3.2}>Another action</MenuItem>*/}
@@ -58,6 +60,7 @@ export default class NormalLayout extends React.Component {
                 </Navbar>
                 <Switch>
                     <Route path="/show-data/:data_center/:device_type/:measurement?/:device?" component={ShowData}/>
+                    <Route path="/task-detail/:data_center/:result_id" component={TaskDetail}/>
                     {/*<Route path="/show-data/:data_center/:device_type/" component={DeviceTypeDetail}/>*/}
                     {/*<Route path="/show-data/:data_center/:device_type/measurement" component={MeasurementDetail}/>*/}
 
@@ -68,6 +71,8 @@ export default class NormalLayout extends React.Component {
                                 <Route path="/model-list" component={ModelList}/>
                                 <Route path="/measurement-list" component={MeasurementList}/>
                                 <Route path="/action" component={Action}/>
+                                <Route path="/task" component={Task}/>
+
                             </Col>
                         </Row>
                     </div>

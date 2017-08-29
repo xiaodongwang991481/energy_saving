@@ -30,7 +30,7 @@ CONF.register_cli_opts(opts)
 
 
 logger = logging.getLogger(__name__)
-manager = model_type_builder_manager.ModelTypeBuilderManager()
+manager = model_type_builder_manager.manager
 
 
 @celeryd_init.connect()
@@ -92,6 +92,8 @@ def save_test_result(datacenter, test_result, result):
     device_type_mapping = result.get('device_type_mapping', {})
     device_type_types = result.get('device_type_types', {})
     statistics = result.get('statistics', {})
+    model = result.get('model', '')
+    model_type = result.get('model_type')
     with database.influx_session(dataframe=True) as session:
         if 'predictions' in result:
             predictions = result['predictions']
@@ -123,7 +125,9 @@ def save_test_result(datacenter, test_result, result):
             'statistics': {
                 '.'.join(column): value
                 for column, value in six.iteritems(statistics)
-            }
+            },
+            'model': model,
+            'model_type': model_type
         }
         test_result_db = session.query(
             models.TestResult
@@ -204,10 +208,11 @@ def apply_model(
     try:
         model_type_builder = manager.get_model_type_builder(model_type)
         model_type_class = model_type_builder.get_model_type(datacenter)
-        model_type_class.apply(
+        result = model_type_class.apply(
             starttime=starttime,
             endtime=endtime, data=data
         )
+        save_test_result(datacenter, test_result, result)
         update_test_result_status(datacenter, test_result, 'success')
     except Exception as error:
         logger.exception(error)

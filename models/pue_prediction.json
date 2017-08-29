@@ -15,5 +15,6 @@
     },
     "nodes": "pue_prediction_nodes.json",
     "model": "linear_regression",
-    "model_config": "pue_prediction_model_config.json"
+    "model_export": "pue_prediction_export.json",
+    "model_params": {}
 }

@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 #
 """utility binary to manage database."""
+from __future__ import print_function
+
 import csv
 import os
 import os.path
 import StringIO
-import six
 import sys
 
 from flask_script import Manager
@@ -24,8 +25,8 @@ app_manager = Manager(api.app, usage="Perform database operations")
 @app_manager.command
 def list_config():
     "List the commands."
-    for key, value in app.config.items():
-        print key, value
+    for key, value in api.app.config.items():
+        print(key, value)
 
 
 @app_manager.command
@@ -40,7 +41,7 @@ def generate_controller(datacenter):
             '{}', datacenter, '%s%d' % (controller_prefix, i), '{}'
         ])
     writer.writerows(output)
-    print string_buffer.getvalue()
+    print(string_buffer.getvalue())
 
 
 @app_manager.command
@@ -56,7 +57,7 @@ def generate_sensor(datacenter):
             '%s%s' % (sensor_prefix, format(i, '02d')), '{}'
         ])
     writer.writerows(output)
-    print string_buffer.getvalue()
+    print(string_buffer.getvalue())
 
 
 @app_manager.command
@@ -73,7 +74,7 @@ def generate_power_supply(datacenter):
             '{}'
         ])
     writer.writerows(output)
-    print string_buffer.getvalue()
+    print(string_buffer.getvalue())
 
 
 @app_manager.command
@@ -91,7 +92,7 @@ def generate_controller_power_supply(datacenter):
             '{}'
         ])
     writer.writerows(output)
-    print string_buffer.getvalue()
+    print(string_buffer.getvalue())
 
 
 def _get_field_values(filename, field_name):
@@ -128,7 +129,7 @@ def generate_controller_attribute_data(
                 datacenter, controller_name, controller_attribute_name
             ])
     writer.writerows(output)
-    print string_buffer.getvalue()
+    print(string_buffer.getvalue())
 
 
 @app_manager.command
@@ -149,7 +150,7 @@ def generate_controller_parameter_data(
                 datacenter, controller_name, controller_parameter_name
             ])
     writer.writerows(output)
-    print string_buffer.getvalue()
+    print(string_buffer.getvalue())
 
 
 @app_manager.command
@@ -170,7 +171,7 @@ def generate_sensor_attribute_data(
                 datacenter, sensor_name, sensor_attribute_name
             ])
     writer.writerows(output)
-    print string_buffer.getvalue()
+    print(string_buffer.getvalue())
 
 
 @app_manager.command
@@ -191,7 +192,7 @@ def generate_power_supply_attribute_data(
                 datacenter, power_supply_name, power_supply_attribute_name
             ])
     writer.writerows(output)
-    print string_buffer.getvalue()
+    print(string_buffer.getvalue())
 
 
 @app_manager.command
@@ -218,7 +219,7 @@ def generate_controller_power_supply_attribute_data(
                 controller_power_supply_attribute_name
             ])
     writer.writerows(output)
-    print string_buffer.getvalue()
+    print(string_buffer.getvalue())
 
 
 @app_manager.command

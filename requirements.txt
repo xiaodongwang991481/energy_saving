@@ -11,9 +11,10 @@ Flask-MySQLdb
 Flask-SQLAlchemy
 Flask-WTF
 Flask-Bootstrap
-importlib
+importlib;python_version <= '2.7'
+importlib2;python_version >= '3.0'
 influxdb
-MySQL-python
+MySQL-python;python_version <= '2.7'
 pandas
 SQLAlchemy
 sqlalchemy_schemadisplay

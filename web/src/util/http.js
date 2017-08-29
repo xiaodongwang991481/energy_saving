@@ -64,7 +64,23 @@ class Http {
             },
             MODEL_APPLY_MODEL : {
                 url : prefix + "models/{0}/{1}/apply"
+            },
+            TASK_GET_TASK_LIST : {
+                url : prefix + "test_result/database/{0}"
+            },
+            TASK_GET_TASK_RESULT : {
+                url : prefix + "test_result/database/{0}/{1}"
+            },
+            TASK_GET_TASK_RESULT_ATTR : {
+                url : prefix + "test_result/timeseries/{0}/{1}/{2}"
+            },
+            TASK_GET_TASK_RESULT_MODEL_LIST:{
+                url : prefix + "test_result/database/{0}/{1}"
+            },
+            TASK_GET_TASK_RESULT_BY_DEVICE_ATTR:{
+                url : prefix + 'test_result/timeseries/{0}/{1}/{2}/{3}/{4}/{5}' // <datacenter>/<test_result>/<measurement_key>/<device_type>/<measurement>/<device>
             }
+
         }
     }
 

@@ -4,6 +4,8 @@ import logging
 import os
 import os.path
 
+
+logger = logging.getLogger(__name__)
 # default setting
 CONFIG_DIR = os.environ.get('ENERGY_SAVING_CONFIG_DIR', '/etc/energy_saving')
 
@@ -82,18 +84,20 @@ else:
     SETTINGS = '%s/settings' % CONFIG_DIR
 if os.path.exists(SETTINGS):
     try:
-        logging.info('load settings from %s', SETTINGS)
-        execfile(SETTINGS, globals(), locals())
+        logger.info('load settings from %s', SETTINGS)
+        with open(SETTINGS) as f:
+            code = compile(f.read(), SETTINGS, 'exec')
+            exec(code, globals(), locals())
     except Exception as error:
-        logging.exception(error)
+        logger.exception(error)
         raise error
 else:
-    logging.error(
+    logger.error(
         'ignore unexisting setting file %s', SETTINGS
     )
 
 
 CONFIG_VARS = vars()
-for key, value in CONFIG_VARS.items():
+for key, value in CONFIG_VARS.copy().items():
     if isinstance(value, lazypy.Promise):
         CONFIG_VARS[key] = lazypy.force(value)

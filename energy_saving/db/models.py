@@ -2,6 +2,7 @@
 import logging
 from oslo_utils import uuidutils
 import simplejson as json
+import sys
 
 from sqlalchemy import Column
 from sqlalchemy import Enum
@@ -23,6 +24,14 @@ logger = logging.getLogger(__name__)
 COLUMN_TYPE_CONVERTER = {
     dict: json.loads
 }
+if sys.version_info > (3,):
+    long = int
+    basestring = str
+    integer_types = (int,)
+    string_types = (str, bytes)
+else:
+    integer_types = (int, long)
+    string_types = (basestring,)
 
 
 def convert_column_value(value, value_type):
@@ -52,14 +61,14 @@ class HelperMixin(object):
         column_python_type = column_type.python_type
         if isinstance(value, column_python_type):
             return True
-        if issubclass(column_python_type, basestring):
-            return isinstance(value, basestring)
-        if column_python_type in [int, long]:
-            return type(value) in [int, long]
-        if column_python_type in [float]:
-            return type(value) in [float]
-        if column_python_type in [bool]:
-            return type(value) in [bool]
+        if issubclass(column_python_type, string_types):
+            return isinstance(value, string_types)
+        if issubclass(column_python_type, integer_types):
+            return isinstance(value, integer_types)
+        if issubclass(column_python_type, float):
+            return isinstance(value, float)
+        if issubclass(column_python_type, bool):
+            return isinstance(value, bool)
         return False
 
     def validate(self):
@@ -82,7 +91,7 @@ class HelperMixin(object):
         """
         keys = self.__mapper__.columns.keys()
         if fields:
-            if isinstance(fields, basestring):
+            if isinstance(fields, string_types):
                 fields = [fields]
             filters = []
             for field in fields:

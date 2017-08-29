@@ -42,3 +42,6 @@ class ModelTypeBuilderManager(stevedore.extension.ExtensionManager):
         raise ModelTypeBuilderNotFoundException(
             'model type builder %s does not found' % name
         )
+
+
+manager = ModelTypeBuilderManager()

@@ -15,5 +15,6 @@
     },
     "nodes": "sensor_attributes_prediction_nodes.json",
     "model": "linear_regression",
-    "model_config": "sensor_attributes_prediction_model_config.json"
+    "model_export": "sensor_attributes_prediction_export.json",
+    "model_params": {}
 }

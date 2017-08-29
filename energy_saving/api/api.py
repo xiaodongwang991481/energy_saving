@@ -96,7 +96,7 @@ def _clean_data(data, keys):
 
 def _replace_data(data, key_mapping):
     """replace key names in dict."""
-    for key, replaced_key in key_mapping.items():
+    for key, replaced_key in six.iteritems(key_mapping):
         if key in data:
             data[replaced_key] = data[key]
             del data[key]
@@ -151,19 +151,19 @@ def _get_request_data():
     Usage: It is used to add or update a single resource.
     """
     if request.form:
-        logging.debug('get data from form')
+        logger.debug('get data from form')
         data = request.form.to_dict()
         # for key in data:
         #     data[key] = data[key].encode('utf-8')
         return data
     else:
-        logging.debug('get data from payload')
+        logger.debug('get data from payload')
         raw_data = request.data
         if raw_data:
             try:
-                data = json.loads(raw_data)
+                data = json.loads(raw_data, encoding='utf-8')
             except Exception as error:
-                logging.exception(error)
+                logger.exception(error)
                 raise exception_handler.BadRequest(
                     'request data is not json formatted: %r' % raw_data
                 )
@@ -221,7 +221,7 @@ def _get_request_args(as_list={}, **kwargs):
        kwargs: for each key, the value is the type converter.
     """
     args = request.args.to_dict(flat=False)
-    for key, value in args.items():
+    for key, value in args.copy().items():
         is_list = as_list.get(key, False)
         logger.debug('request arg %s is list? %s', key, is_list)
         if not is_list:
@@ -330,7 +330,7 @@ def list_test_results(datacenter):
     methods=['GET']
 )
 def show_test_result(datacenter, test_result):
-    logger.debug('show %s test result %s', test_result)
+    logger.debug('show %s test result %s', datacenter, test_result)
     with database.session() as session:
         result = session.query(models.TestResult).filter_by(
             datacenter_name=datacenter, name=test_result
@@ -360,9 +360,6 @@ def list_test_result_timeseries(datacenter, test_result, measurement_key):
     device_type_mapping = {}
     device_type_types = {}
     with database.session() as session:
-        datacenter_metadata = timeseries.get_datacenter_metadata(
-            session, datacenter
-        )
         test_result_db = session.query(
             models.TestResult
         ).filter_by(datacenter_name=datacenter, name=test_result).first()
@@ -373,33 +370,24 @@ def list_test_result_timeseries(datacenter, test_result, measurement_key):
             'device_type_types', {}
         )
     device_types = data.get('device_type')
-    if device_types:
+    new_device_type_mapping = {}
+    if not device_types:
+        device_types = device_type_mapping.keys()
+    for device_type in device_types:
+        measurement_mapping = device_type_mapping[device_type]
+        new_measurement_mapping = {}
         measurements = data.get('measurement')
-        if measurements:
+        if not measurements:
+            measurements = measurement_mapping.keys()
+        for measurement in measurements:
+            all_devices = measurement_mapping[measurement]
             devices = data.get('device')
-            if devices:
-                measurements = {
-                    measurement: devices
-                    for measurement in measurements
-                }
-            device_types = {
-                device_type: measurements
-                for device_type in device_types
-            }
-    device_type_units = {
-    }
-    for device_type, device_type_metadata in six.iteritems(
-        datacenter_metadata['device_types']
-    ):
-        measurement_units = device_type_units.setdefault(
-            device_type, {}
-        )
-        for measurement in six.iterkeys(device_type_metadata):
-            measurement_unit = data.get(
-                '%s_%s_unit' % (device_type, measurement)
-            )
-            if measurement_unit:
-                measurement_units[measurement] = measurement_unit
+            if not devices:
+                devices = all_devices
+            devices = [device for device in devices if device in all_devices]
+            new_measurement_mapping[measurement] = devices
+        new_device_type_mapping[device_type] = new_measurement_mapping
+    device_type_mapping = new_device_type_mapping
     with database.influx_session() as session:
         response = timeseries.list_test_result_timeseries(
             session, {
@@ -416,7 +404,6 @@ def list_test_result_timeseries(datacenter, test_result, measurement_key):
                 'limit': data.get('limit'),
                 'offset': data.get('offset'),
                 'datacenter': datacenter,
-                'device_type': device_types
             }, measurement_key,
             time_precision=time_precision,
             device_type_mapping=device_type_mapping,
@@ -428,6 +415,230 @@ def list_test_result_timeseries(datacenter, test_result, measurement_key):
         device_type_outputs = outputs.setdefault(device_type, {})
         measurement_outputs = device_type_outputs.setdefault(measurement, {})
         measurement_outputs[device] = tag_response
+    return utils.make_json_response(
+        200, outputs
+    )
+
+
+@app.route(
+    "/test_result/timeseries/<datacenter>/<test_result>"
+    "/<measurement_key>/<device_type>",
+    methods=['GET']
+)
+def list_test_result_device_type_timeseries(
+    datacenter, test_result, measurement_key, device_type
+):
+    data = _get_request_args(as_list={
+        'group_by': True,
+        'order_by': True,
+        'measurement': True,
+        'device': True
+    })
+    time_precision = data.get(
+        'time_precision',
+        CONF.timeseries_time_precision
+    ) or None
+    device_type_mapping = {}
+    device_type_types = {}
+    with database.session() as session:
+        test_result_db = session.query(
+            models.TestResult
+        ).filter_by(datacenter_name=datacenter, name=test_result).first()
+        device_type_mapping = test_result_db.properties.get(
+            'device_type_mapping', {}
+        )
+        device_type_types = test_result_db.properties.get(
+            'device_type_types', {}
+        )
+    assert device_type in device_type_mapping
+    measurement_mapping = device_type_mapping[device_type]
+    new_measurement_mapping = {}
+    new_device_type_mapping = {device_type: new_measurement_mapping}
+    measurements = data.get('measurement')
+    if not measurements:
+        measurements = measurement_mapping.keys()
+    for measurement in measurements:
+        all_devices = measurement_mapping[measurement]
+        devices = data.get('device')
+        if not devices:
+            devices = all_devices
+        devices = [device for device in devices if device in all_devices]
+        new_measurement_mapping[measurement] = devices
+    device_type_mapping = new_device_type_mapping
+    with database.influx_session() as session:
+        response = timeseries.list_test_result_timeseries(
+            session, {
+                'where': {
+                    'device': data.get('device'),
+                    'reference': test_result,
+                    'starttime': data.get('starttime'),
+                    'endtime': data.get('endtime')
+                },
+                'group_by': data.get('group_by'),
+                'order_by': data.get('order_by'),
+                'fill': data.get('fill'),
+                'aggregation': data.get('aggregation'),
+                'limit': data.get('limit'),
+                'offset': data.get('offset'),
+                'datacenter': datacenter,
+            }, measurement_key,
+            time_precision=time_precision,
+            device_type_mapping=device_type_mapping,
+            device_type_types=device_type_types
+        )
+    outputs = {}
+    for key, tag_response in six.iteritems(response):
+        _, measurement, device = key
+        measurement_outputs = outputs.setdefault(measurement, {})
+        measurement_outputs[device] = tag_response
+    return utils.make_json_response(
+        200, outputs
+    )
+
+
+@app.route(
+    "/test_result/timeseries/<datacenter>/<test_result>"
+    "/<measurement_key>/<device_type>/<measurement>",
+    methods=['GET']
+)
+def list_test_result_measurement_timeseries(
+    datacenter, test_result, measurement_key, device_type, measurement
+):
+    data = _get_request_args(as_list={
+        'group_by': True,
+        'order_by': True,
+        'device': True
+    })
+    time_precision = data.get(
+        'time_precision',
+        CONF.timeseries_time_precision
+    ) or None
+    device_type_mapping = {}
+    device_type_types = {}
+    with database.session() as session:
+        test_result_db = session.query(
+            models.TestResult
+        ).filter_by(datacenter_name=datacenter, name=test_result).first()
+        device_type_mapping = test_result_db.properties.get(
+            'device_type_mapping', {}
+        )
+        device_type_types = test_result_db.properties.get(
+            'device_type_types', {}
+        )
+    assert device_type in device_type_mapping
+    measurement_mapping = device_type_mapping[device_type]
+    new_measurement_mapping = {}
+    new_device_type_mapping = {device_type: new_measurement_mapping}
+    assert measurement in measurement_mapping
+    all_devices = measurement_mapping[measurement]
+    devices = data.get('device')
+    if not devices:
+        devices = all_devices
+    devices = [device for device in devices if device in all_devices]
+    new_measurement_mapping[measurement] = devices
+    device_type_mapping = new_device_type_mapping
+    with database.influx_session() as session:
+        response = timeseries.list_test_result_timeseries(
+            session, {
+                'where': {
+                    'device': data.get('device'),
+                    'reference': test_result,
+                    'starttime': data.get('starttime'),
+                    'endtime': data.get('endtime')
+                },
+                'group_by': data.get('group_by'),
+                'order_by': data.get('order_by'),
+                'fill': data.get('fill'),
+                'aggregation': data.get('aggregation'),
+                'limit': data.get('limit'),
+                'offset': data.get('offset'),
+                'datacenter': datacenter,
+            }, measurement_key,
+            time_precision=time_precision,
+            device_type_mapping=device_type_mapping,
+            device_type_types=device_type_types
+        )
+    outputs = {}
+    for key, tag_response in six.iteritems(response):
+        _, _, device = key
+        outputs[device] = tag_response
+    return utils.make_json_response(
+        200, outputs
+    )
+
+
+@app.route(
+    "/test_result/timeseries/<datacenter>/<test_result>"
+    "/<measurement_key>/<device_type>/<measurement>/<device>",
+    methods=['GET']
+)
+def list_test_result_device_timeseries(
+    datacenter, test_result, measurement_key,
+    device_type, measurement, device
+):
+    data = _get_request_args(as_list={
+        'group_by': True,
+        'order_by': True,
+    })
+    logger.debug(
+        'list_test_result_device_timeseries datacenter=%s '
+        'test_result=%s measurement_key=%s device_type=%s '
+        'measurement=%s device=%s',
+        datacenter, test_result, measurement_key,
+        device_type, measurement, device
+    )
+    time_precision = data.get(
+        'time_precision',
+        CONF.timeseries_time_precision
+    ) or None
+    device_type_mapping = {}
+    device_type_types = {}
+    with database.session() as session:
+        test_result_db = session.query(
+            models.TestResult
+        ).filter_by(datacenter_name=datacenter, name=test_result).first()
+        device_type_mapping = test_result_db.properties.get(
+            'device_type_mapping', {}
+        )
+        device_type_types = test_result_db.properties.get(
+            'device_type_types', {}
+        )
+    logger.debug('device_type_mapping: %s', device_type_mapping)
+    logger.debug('device_type_types: %s', device_type_types)
+    assert device_type in device_type_mapping
+    measurement_mapping = device_type_mapping[device_type]
+    new_measurement_mapping = {}
+    new_device_type_mapping = {device_type: new_measurement_mapping}
+    assert measurement in measurement_mapping
+    devices = measurement_mapping[measurement]
+    assert device in devices
+    new_measurement_mapping[measurement] = [device]
+    device_type_mapping = new_device_type_mapping
+    with database.influx_session() as session:
+        response = timeseries.list_test_result_timeseries(
+            session, {
+                'where': {
+                    'device': device,
+                    'reference': test_result,
+                    'starttime': data.get('starttime'),
+                    'endtime': data.get('endtime')
+                },
+                'group_by': data.get('group_by'),
+                'order_by': data.get('order_by'),
+                'fill': data.get('fill'),
+                'aggregation': data.get('aggregation'),
+                'limit': data.get('limit'),
+                'offset': data.get('offset'),
+                'datacenter': datacenter,
+            }, measurement_key,
+            time_precision=time_precision,
+            device_type_mapping=device_type_mapping,
+            device_type_types=device_type_types
+        )
+    outputs = {}
+    for key, tag_response in six.iteritems(response):
+        _, _, device = key
+        outputs = tag_response
     return utils.make_json_response(
         200, outputs
     )
@@ -1839,15 +2050,17 @@ def index():
     return utils.make_template_response(200, {}, 'index.html')
 
 
-def _create_prediction(datacenter_name):
+def _check_test_result(datacenter_name, test_result_name):
     with database.session() as session:
-        datacenter = session.query(
-            models.Datacenter
-        ).filter_by(name=datacenter_name).first()
-        prediction = models.Prediction()
-        datacenter.predictions.append(prediction)
-        session.flush()
-        return prediction.name
+        test_result = session.query(
+            models.TestResult
+        ).filter_by(
+            datacenter_name=datacenter_name, name=test_result_name
+        ).first()
+        if test_result:
+            return True
+        else:
+            return False
 
 
 def _create_test_result(datacenter_name):
@@ -1884,8 +2097,8 @@ def show_model_type(datacenter_name, model_type):
 def build_model(datacenter_name, model_type):
     data = _get_request_data()
     logger.debug(
-        'build model params: data=%s',
-        data
+        '%s build model type %s params: data=%s',
+        datacenter_name, model_type, data
     )
     test_result = _create_test_result(datacenter_name)
     logger.debug(
@@ -1901,7 +2114,7 @@ def build_model(datacenter_name, model_type):
             }
         )
     except Exception as error:
-        logging.exception(error)
+        logger.exception(error)
         raise exception_handler.Forbidden(
             'failed to send build_model to celery'
         )
@@ -1917,8 +2130,8 @@ def train_model(datacenter_name, model_type):
     endtime = timeseries.get_timestamp(data.get('endtime'))
     train_data = data.get('data')
     logger.debug(
-        'train model params: starttime=%s, endtime=%s data=%s',
-        starttime, endtime, train_data
+        '%s train model type %s params: starttime=%s, endtime=%s data=%s',
+        datacenter_name, model_type, starttime, endtime, train_data
     )
     if not train_data:
         assert starttime is not None
@@ -1939,7 +2152,7 @@ def train_model(datacenter_name, model_type):
             }
         )
     except Exception as error:
-        logging.exception(error)
+        logger.exception(error)
         raise exception_handler.Forbidden(
             'failed to send train_model to celery'
         )
@@ -1955,8 +2168,8 @@ def test_model(datacenter_name, model_type):
     endtime = timeseries.get_timestamp(data.get('endtime'))
     test_data = data.get('data')
     logger.debug(
-        'test model params: starttime=%s, endtime=%s data=%s',
-        starttime, endtime, test_data
+        '%s test model type %s params: starttime=%s, endtime=%s data=%s',
+        datacenter_name, model_type, starttime, endtime, test_data
     )
     if not test_data:
         assert starttime is not None
@@ -1977,7 +2190,7 @@ def test_model(datacenter_name, model_type):
             }
         )
     except Exception as error:
-        logging.exception(error)
+        logger.exception(error)
         raise exception_handler.Forbidden(
             'failed to send test_model to celery'
         )
@@ -1991,15 +2204,17 @@ def apply_model(datacenter_name, model_type):
     data = _get_request_data()
     starttime = timeseries.get_timestamp(data.get('starttime'))
     endtime = timeseries.get_timestamp(data.get('endtime'))
+    test_result = data.get('test_result')
     apply_data = data.get('data')
     logger.debug(
-        'apply model params: starttime=%s, endtime=%s data=%s',
-        starttime, endtime, apply_data
+        '%s apply model type %s params: starttime=%s, endtime=%s data=%s',
+        datacenter_name, model_type, starttime, endtime, apply_data
     )
     if not apply_data:
         assert starttime is not None
         assert endtime is not None
-    test_result = _create_test_result(datacenter_name)
+    if not test_result or not _check_test_result(datacenter_name, test_result):
+        test_result = _create_test_result(datacenter_name)
     logger.debug(
         'datacenter %s model %s test_result %s',
         datacenter_name, model_type, test_result
@@ -2015,7 +2230,7 @@ def apply_model(datacenter_name, model_type):
             }
         )
     except Exception as error:
-        logging.exception(error)
+        logger.exception(error)
         raise exception_handler.Forbidden(
             'failed to send apply_model to celery'
         )

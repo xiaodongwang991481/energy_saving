@@ -11,6 +11,7 @@ from energy_saving.utils import settings
 from energy_saving.utils import util
 
 
+logger = logging.getLogger(__name__)
 opts = [
     cfg.StrOpt(
         'celeryconfig_dir',
@@ -59,12 +60,14 @@ if celeryconfig_file:
     )
     if os.path.exists(CELERY_CONFIG):
         try:
-            logging.info('load celery config from %s', CELERY_CONFIG)
-            execfile(CELERY_CONFIG, globals(), locals())
+            logger.info('load celery config from %s', CELERY_CONFIG)
+            with open(CELERY_CONFIG) as f:
+                code = compile(f.read(), CELERY_CONFIG, 'exec')
+                exec(code, globals(), locals())
         except Exception as error:
-            logging.exception(error)
+            logger.exception(error)
             raise error
     else:
-        logging.error(
+        logger.error(
             'ignore unexisting celery config file %s', CELERY_CONFIG
         )

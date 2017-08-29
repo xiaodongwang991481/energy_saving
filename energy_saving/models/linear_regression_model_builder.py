@@ -10,20 +10,13 @@ logger = logging.getLogger(__name__)
 class LinearRegression(
     base_model_builder.BaseModel
 ):
-    def __init__(
-        self, model_type, model_path, input_nodes, output_nodes,
-        inpput_nodes_device_type_types, output_nodes_device_type_types,
-    ):
+    def create_variables(self):
         self.features = [
             tf.contrib.layers.real_valued_column(
-                'inputs', dimension=len(input_nodes)
+                'inputs', dimension=len(self.input_nodes)
             )
         ]
         logger.debug('features: %s', self.features)
-        super(LinearRegression, self).__init__(
-            model_type, model_path, input_nodes, output_nodes,
-            inpput_nodes_device_type_types, output_nodes_device_type_types
-        )
 
     def create_estimator(self, model_path):
         return tf.contrib.learn.LinearRegressor(
@@ -37,10 +30,15 @@ class LinearRegressionBuilder(
     base_model_builder.BaseModelBuilder
 ):
     def create_model(
-        self, model_type, model_path, input_nodes, output_nodes,
-        inpput_nodes_device_type_types, output_nodes_device_type_types
+        self, model_type, model_path, model_params,
+        input_nodes, output_nodes,
+        input_nodes_device_type_types, output_nodes_device_type_types,
+        reset=False
     ):
         return LinearRegression(
-            model_type, model_path, input_nodes, output_nodes,
-            inpput_nodes_device_type_types, output_nodes_device_type_types
+            self, model_type, model_path, model_params,
+            input_nodes=input_nodes, output_nodes=output_nodes,
+            input_nodes_device_type_types=input_nodes_device_type_types,
+            output_nodes_device_type_types=output_nodes_device_type_types,
+            reset=reset
         )

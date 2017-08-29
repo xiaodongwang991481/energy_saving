@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import re
 import six
+import sys
 
 from energy_saving.db import database
 from energy_saving.db import exception
@@ -13,6 +14,12 @@ from energy_saving.db import models
 
 
 logger = logging.getLogger(__name__)
+if sys.version_info > (3,):
+    long = int
+    basestring = str
+    string_types = (str, bytes)
+else:
+    string_types = (basestring,)
 
 
 def _get_attribute_dict(attribute):
@@ -587,12 +594,12 @@ def get_query_from_data(
     where['device_type'] = device_type
     where['datacenter'] = datacenter
     group_by = data.get('group_by') or []
-    if isinstance(group_by, basestring):
+    if isinstance(group_by, string_types):
         group_by = [group_by]
     if 'device' not in group_by:
         group_by = group_by + ['device']
     order_by = data.get('order_by') or []
-    if isinstance(order_by, basestring):
+    if isinstance(order_by, string_types):
         order_by = [order_by]
     fill = data.get('fill')
     aggregation = data.get('aggregation')
@@ -634,7 +641,7 @@ def get_device_type_mapping(
             datacenter_metadata['device_types']
         ):
             device_type_measurements[device_type] = {}
-    elif isinstance(device_types, basestring):
+    elif isinstance(device_types, string_types):
         device_type_measurements[device_types] = {}
     elif isinstance(device_types, list):
         for device_type in device_types:
@@ -659,7 +666,7 @@ def get_device_type_mapping(
                 device_type_metadata
             ):
                 measurement_devices[measurement] = []
-        elif isinstance(measurements, basestring):
+        elif isinstance(measurements, string_types):
             measurement_devices[measurements] = []
         elif isinstance(measurements, list):
             for measurement in measurements:
@@ -682,7 +689,7 @@ def get_device_type_mapping(
             measurement_metadata = device_type_metadata[measurement]
             if not devices:
                 devices = measurement_metadata['devices']
-            elif isinstance(devices, basestring):
+            elif isinstance(devices, string_types):
                 devices = [devices]
             real_devices = []
             for device in devices:
@@ -1238,12 +1245,12 @@ def delete_timeseries(session, tags):
 
 
 TIMEDELTA_MAP = {
-    'h': lambda t: t / 3600,
-    'm': lambda t: t / 60,
-    's': lambda t: t,
-    'ms': lambda t: t * 1000,
-    'u': lambda t: long(t * 1e6),
-    'ns': lambda t: long(t * 1e9)
+    'h': lambda t: long(t) // 3600,
+    'm': lambda t: long(t) // 60,
+    's': lambda t: long(t),
+    'ms': lambda t: long(t) * 1000,
+    'u': lambda t: long(t) * 1e6,
+    'ns': lambda t: long(t) * 1e9
 }
 
 

@@ -28,26 +28,11 @@ opts = [
 CONF = util.CONF
 CONF.register_cli_opts(opts)
 logger = logging.getLogger(__name__)
-manager = model_builder_manager.ModelBuilderManager()
+manager = model_builder_manager.manager
 
 
 class BaseModelType(object):
     def __init__(self, datacenter, builder):
-        self.datacenter = datacenter
-        self.builder = builder
-        self.metadata = self.get_metadata()
-        self.config = self.load_config(
-            self.metadata['models'].get(
-                self.builder.name, '%s.json' % self.builder.name
-            )
-        )
-        logger.debug(
-            'model type %s config: %s',
-            self.builder.name, self.config
-        )
-        self.model_builder = self.get_model_builder()
-        self.built = False
-        self.trained = False
         self.SUB_NODES_AGGREGATORS = {
             'sum': self.sum_sub_nodes_data,
             'default': self.sum_sub_nodes_data
@@ -62,9 +47,23 @@ class BaseModelType(object):
             'undifferentiate': self.undifferentiate_data,
             'default': self.unshift_data
         }
+        self.datacenter = datacenter
+        self.builder = builder
+        self.metadata = self.get_metadata()
+        self.config = self.load_config(
+            self.metadata['models'].get(
+                self.builder.name, '%s.json' % self.builder.name
+            )
+        )
+        logger.debug(
+            'model type %s config: %s',
+            self.builder.name, self.config
+        )
+        self.built = False
+        self.trained = False
 
     def sum_sub_nodes_data(self, data):
-        return data.sum(axis=1)
+        return data.sum(axis=1, skipna=False)
 
     def get_sub_nodes_aggregator(self, aggregator_name):
         return self.SUB_NODES_AGGREGATORS.get(
@@ -108,14 +107,19 @@ class BaseModelType(object):
             CONF.model_dir, filename
         )
 
-    def load_config(self, filename):
+    def load_config(self, filename, raise_exception=True, default=None):
         config_file = self.get_file(
             filename
         )
-        with open(config_file, 'r') as data_file:
-            return json.loads(
-                data_file.read().decode('utf-8'), encoding='utf-8'
-            )
+        if os.path.exists(config_file):
+            with open(config_file, 'rb') as data_file:
+                return json.loads(
+                    data_file.read().decode('utf-8'), encoding='utf-8'
+                )
+        else:
+            if raise_exception:
+                raise Exception('file %s is not found' % config_file)
+            return default
 
     def save_config(self, filename, data):
         config_file = self.get_file(
@@ -136,22 +140,14 @@ class BaseModelType(object):
         nodes = self.load_config(self.config['nodes'])
         self.input_nodes = nodes['input']
         self.output_nodes = nodes['output']
+        self.initialize_nodes_relationship()
 
     def load_built(self):
         logger.debug('load built? %s', self.built)
         if not self.built:
             self.load_nodes()
+            self.create_model()
             self.built = True
-            model_path = self.get_file(
-                '%s.%s' % (self.builder.name, self.config['model'])
-            )
-            self.model = self.model_builder.get_model(
-                self, model_path,
-                [self.get_node_key(node) for node in self.input_nodes],
-                [self.get_node_key(node) for node in self.output_nodes],
-                self.get_input_nodes_device_type_types(),
-                self.get_output_nodes_device_type_types()
-            )
             logger.debug('built model is loaded')
 
     def load_trained(self):
@@ -163,14 +159,17 @@ class BaseModelType(object):
             logger.debug('trained model is loaded')
 
     def save_model(self):
-        model_config = self.model.save()
+        model_export = self.model.save()
         self.save_config(
-            self.config['model_config'],
-            model_config
+            self.config['model_export'],
+            model_export
         )
 
     def load_model(self):
-        self.model.load()
+        model_export = self.load_config(
+            self.config['model_export']
+        )
+        self.model.load(model_export)
 
     def save_nodes(self):
         self.save_config(
@@ -233,14 +232,54 @@ class BaseModelType(object):
                     })
         return nodes
 
-    def create_nodes(self, data=None):
+    def initialize_nodes_relationship(self):
+        (
+            self.original_input_nodes,
+            self.original_output_nodes
+        ) = self.generate_original_nodes()
+        (
+            self.unmerged_input_nodes,
+            self.unmerged_output_nodes
+        ) = self.generate_unmerged_nodes()
+        (
+            self.input_node_keys,
+            self.output_node_keys
+        ) = self.generate_node_keys()
+        (
+            self.original_input_node_keys,
+            self.original_output_node_keys
+        ) = self.generate_original_node_keys()
+        (
+            self.input_nodes_device_type_types,
+            self.output_nodes_device_type_types
+        ) = self.generate_device_type_types()
+        (
+            self.input_nodes_device_type_mapping,
+            self.output_nodes_device_type_mapping
+        ) = self.generate_device_type_mapping()
+        (
+            self.input_node_key_mapping,
+            self.output_node_key_mapping
+        ) = self.generate_node_key_mapping()
+
+    def create_input_nodes(self, data=None):
         if not data:
             input_nodes = self._create_nodes(self.config['inputs'])
+        else:
+            input_nodes = data
+        return input_nodes
+
+    def create_output_nodes(self, data=None):
+        if not data:
             output_nodes = self._create_nodes(self.config['outputs'])
         else:
-            input_nodes, output_nodes = (
-                data['input_nodes'], data['output_nodes']
-            )
+            output_nodes = data['output_nodes']
+        return output_nodes
+
+    def create_nodes(self, data=None):
+        data = data or {}
+        input_nodes = self.create_input_nodes(data.get('input_nodes'))
+        output_nodes = self.create_output_nodes(data.get('output_nodes'))
         logger.debug(
             'input nodes before processed: %s', input_nodes
         )
@@ -252,21 +291,40 @@ class BaseModelType(object):
         ) = self.process_nodes(input_nodes, output_nodes)
         logger.debug('input nodes: %s', self.input_nodes)
         logger.debug('output nodes: %s', self.output_nodes)
+        self.initialize_nodes_relationship()
 
-    def build(self, data=None):
-        logger.debug('%s build model', self)
-        try:
-            self.create_nodes(data)
-            model_path = self.get_file(self.config['model_path'])
-            self.model = self.model_builder.get_model(
-                self, model_path,
-                [self.get_node_key(node) for node in self.input_nodes],
-                [self.get_node_key(node) for node in self.output_nodes]
-            )
-            self.save_built()
-        except Exception as error:
-            logger.exception(error)
-            raise error
+    def create_model(self, reset=False):
+        self.model_builder = self.get_model_builder()
+        self.model_path = self.get_file(
+            '%s.%s' % (self.builder.name, self.model_builder.name)
+        )
+        self.model_params = self.config['model_params']
+        self.model = self.model_builder.get_model(
+            self, self.model_path, self.model_params,
+            input_nodes=self.input_node_keys,
+            output_nodes=self.output_node_keys,
+            input_nodes_device_type_types=self.input_nodes_device_type_types,
+            output_nodes_device_type_types=(
+                self.output_nodes_device_type_types
+            ),
+            reset=reset
+        )
+
+    def build(self, data=None, force=True):
+        logger.debug(
+            '%s build model force=%s',
+            self, force
+        )
+        if force or not self.built:
+            try:
+                self.create_nodes(data)
+                self.create_model(reset=True)
+                self.save_built()
+            except Exception as error:
+                logger.exception(error)
+                raise error
+        else:
+            logger.debug('%s build is not forced and is already built', self)
 
     def _get_data_from_timeseries(
             self, session,
@@ -330,56 +388,67 @@ class BaseModelType(object):
                         dataframe[key] = pd.Series(values, index=times)
         return pd.DataFrame(dataframe)
 
-    def get_data(
-        self, starttime=None, endtime=None, data=None,
-        get_input=True, get_ouput=True
+    def get_input_data(
+        self, starttime=None, endtime=None, data=None
     ):
-        input_nodes = self.get_extended_nodes(self.input_nodes)
-        output_nodes = self.get_extended_nodes(self.output_nodes)
+        input_nodes = self.unmerged_input_nodes
         logger.debug('get data input nodes: %s', input_nodes)
-        logger.debug('get data output nodes: %s', output_nodes)
         if not data:
             with database.influx_session(dataframe=True) as session:
-                if get_input:
-                    input_data = self._get_data_from_timeseries(
-                        session,
-                        starttime, endtime,
-                        input_nodes
-                    )
-                else:
-                    input_data = None
-                if get_ouput:
-                    output_data = self._get_data_from_timeseries(
-                        session,
-                        starttime, endtime,
-                        output_nodes
-                    )
-                else:
-                    output_data = None
-        else:
-            if get_input:
-                input_data = self._get_data_direct(
-                    data['input_data'],
+                input_data = self._get_data_from_timeseries(
+                    session,
+                    starttime, endtime,
                     input_nodes
                 )
-            else:
-                input_data = None
-            if get_ouput:
-                output_data = self._get_data_direct(
-                    data['output_data'],
-                    self.output_nodes
-                )
-            else:
-                output_data = None
+        else:
+            input_data = self._get_data_direct(
+                data,
+                input_nodes
+            )
         if input_data is not None:
             logger.debug('input data columns: %s', input_data.columns)
             logger.debug('input data index: %s', input_data.index)
+        return input_data
+
+    def get_output_data(
+        self, starttime=None, endtime=None, data=None
+    ):
+        output_nodes = self.unmerged_output_nodes
+        logger.debug('get data output nodes: %s', output_nodes)
+        if not data:
+            with database.influx_session(dataframe=True) as session:
+                output_data = self._get_data_from_timeseries(
+                    session,
+                    starttime, endtime,
+                    output_nodes
+                )
+        else:
+            output_data = self._get_data_direct(
+                data,
+                self.output_nodes
+            )
         if output_data is not None:
             logger.debug('output data columns: %s', output_data.columns)
             logger.debug('output data index: %s', output_data.index)
-        input_data, output_data = self.clean_data(
-            input_data, output_data
-        )
+        return output_data
+
+    def get_data(
+        self, starttime=None, endtime=None, data=None,
+        get_input=True, get_output=True
+    ):
+        data = data or {}
+        input_data = None
+        if get_input:
+            input_data = self.get_input_data(
+                starttime=starttime, endtime=endtime,
+                data=data.get('input_data')
+            )
+        output_data = None
+        if get_output:
+            output_data = self.get_output_data(
+                starttime=starttime, endtime=endtime,
+                data=data.get('output_data')
+            )
         input_data, output_data = self.merge_data(
             input_data, output_data
         )
@@ -396,41 +465,27 @@ class BaseModelType(object):
             logger.error('%s is not trained yet', self)
             raise Exception('%s is not trained' % self)
 
+    def unique_nodes(self, nodes):
+        new_nodes = []
+        node_keys = set()
+        for node in nodes:
+            node_key = self.get_node_key(node)
+            if node_key not in node_keys:
+                node_keys.add(node_key)
+                new_nodes.append(node)
+        return new_nodes
+
     def process_input_nodes(self, input_nodes):
-        return input_nodes
+        return self.unique_nodes(input_nodes)
 
     def process_output_nodes(self, output_nodes):
-        return output_nodes
+        return self.unique_nodes(output_nodes)
 
     def process_nodes(self, input_nodes, output_nodes):
         return (
             self.process_input_nodes(input_nodes),
             self.process_output_nodes(output_nodes)
         )
-
-    def get_node_mapping(self, nodes):
-        node_map = {}
-        for node in nodes:
-            device_type = node['device_type']
-            measurement = node['measurement']
-            device = node['device']
-            node_map[(device_type, measurement, device)] = node
-        return node_map
-
-    def get_extended_nodes(self, nodes):
-        extended_nodes = []
-        for node in nodes:
-            if 'sub_nodes' in node:
-                extended_nodes.extend(
-                    self.get_extended_nodes(node['sub_nodes'])
-                )
-            elif 'original_node' in node:
-                extended_nodes.extend(
-                    self.get_extended_nodes([node['original_node']])
-                )
-            else:
-                extended_nodes.append(node)
-        return extended_nodes
 
     def normalize_data_by_node(self, data, node, normalized_data={}):
         node_key = self.get_node_key(node)
@@ -445,16 +500,16 @@ class BaseModelType(object):
         return pd.DataFrame(normralized_data)
 
     def normalize_input_data(self, input_data):
-        logger.debug('normalize input data %s', input_data.columns)
         if input_data is not None:
+            logger.debug('normalize input data %s', input_data.columns)
             input_data = self.normalize_data_by_nodes(
                 input_data, self.input_nodes
             )
         return input_data
 
     def normalize_output_data(self, output_data):
-        logger.debug('normalize output data %s', output_data.columns)
         if output_data is not None:
+            logger.debug('normalize output data %s', output_data.columns)
             output_data = self.normalize_data_by_nodes(
                 output_data, self.output_nodes
             )
@@ -483,8 +538,8 @@ class BaseModelType(object):
         return pd.DataFrame(denormalized_data)
 
     def denormalize_data(self, output_data):
-        logger.debug('denormalize_data %s', output_data.columns)
         if output_data is not None:
+            logger.debug('denormalize_data %s', output_data.columns)
             output_data = self.denormalize_data_by_nodes(
                 output_data, self.output_nodes
             )
@@ -516,10 +571,14 @@ class BaseModelType(object):
         return device_type_mapping
 
     def generate_input_nodes_device_type_mapping(self):
-        return self.generate_device_type_mapping_by_nodes(self.input_nodes)
+        return self.generate_device_type_mapping_by_nodes(
+            self.original_input_nodes
+        )
 
     def generate_output_nodes_device_type_mapping(self):
-        return self.generate_device_type_mapping_by_nodes(self.output_nodes)
+        return self.generate_device_type_mapping_by_nodes(
+            self.original_output_nodes
+        )
 
     def generate_device_type_mapping(self):
         return (
@@ -540,10 +599,13 @@ class BaseModelType(object):
         return device_type_types
 
     def generate_input_nodes_device_type_types(self):
-        return self.generate_device_type_types_by_nodes(self.input_nodes)
+        return self.generate_device_type_types_by_nodes(
+            self.original_input_nodes)
 
     def generate_output_nodes_device_type_types(self):
-        return self.generate_device_type_types_by_nodes(self.output_nodes)
+        return self.generate_device_type_types_by_nodes(
+            self.original_output_nodes
+        )
 
     def generate_device_type_types(self):
         return (
@@ -551,34 +613,142 @@ class BaseModelType(object):
             self.generate_output_nodes_device_type_types()
         )
 
+    def generate_input_node_keys(self):
+        return self.generate_node_keys_by_nodes(self.input_nodes)
+
+    def generate_output_node_keys(self):
+        return self.generate_node_keys_by_nodes(self.output_nodes)
+
+    def generate_node_keys(self):
+        return (
+            self.generate_input_node_keys(),
+            self.generate_output_node_keys()
+        )
+
+    def generate_original_nodes_by_nodes(self, nodes):
+        new_nodes = []
+        for node in nodes:
+            if 'original_node' in node:
+                node = node['original_node']
+            new_nodes.append(node)
+        return self.unique_nodes(new_nodes)
+
+    def generate_original_output_nodes(self):
+        return self.generate_original_nodes_by_nodes(self.output_nodes)
+
+    def generate_original_input_nodes(self):
+        return self.generate_original_nodes_by_nodes(self.input_nodes)
+
+    def generate_original_nodes(self):
+        return (
+            self.generate_original_input_nodes(),
+            self.generate_original_output_nodes()
+        )
+
+    def generate_unmerged_nodes_by_nodes(self, nodes):
+        new_nodes = []
+        for node in nodes:
+            if 'sub_nodes' in node:
+                new_nodes.extend(node['sub_nodes'])
+            else:
+                new_nodes.append(node)
+        return self.unique_nodes(new_nodes)
+
+    def generate_unmerged_input_nodes(self):
+        return self.generate_unmerged_nodes_by_nodes(
+            self.original_input_nodes
+        )
+
+    def generate_unmerged_output_nodes(self):
+        return self.generate_unmerged_nodes_by_nodes(
+            self.original_output_nodes
+        )
+
+    def generate_unmerged_nodes(self):
+        return (
+            self.generate_unmerged_input_nodes(),
+            self.generate_unmerged_output_nodes()
+        )
+
+    def generate_original_input_node_keys(self):
+        return self.generate_node_keys_by_nodes(self.original_input_nodes)
+
+    def generate_node_keys_by_nodes(self, nodes):
+        return [self.get_node_key(node) for node in nodes]
+
+    def generate_original_output_node_keys(self):
+        return self.generate_node_keys_by_nodes(self.original_output_nodes)
+
+    def generate_original_node_keys(self):
+        return (
+            self.generate_original_input_node_keys(),
+            self.generate_original_output_node_keys()
+        )
+
+    def generate_node_key_mapping_by_nodes(self, nodes):
+        return {
+            self.get_node_key(node): node for node in nodes
+        }
+
+    def generate_input_node_key_mapping(self):
+        return self.generate_node_key_mapping_by_nodes(self.input_nodes)
+
+    def generate_output_node_key_mapping(self):
+        return self.generate_node_key_mapping_by_nodes(self.output_nodes)
+
+    def generate_node_key_mapping(self):
+        return (
+            self.generate_input_node_key_mapping(),
+            self.generate_output_node_key_mapping()
+        )
+
     def recover_prediction_data(self, transformed_data, output_data):
         return self.recover_data(transformed_data, output_data)
 
     def recover_expectation_data(self, transformed_data, output_data):
+        if output_data is not None:
+            output_data = output_data[self.original_output_node_keys]
         return output_data
 
+    def recover_statistics(self, statistics):
+        recoved_statistics = {}
+        if statistics:
+            for key, item in six.iteritems(statistics):
+                node = self.output_node_key_mapping[key]
+                if 'original_node' in node:
+                    node = node['original_node']
+                key = self.get_node_key(node)
+                recoved_statistics[key] = item
+        return recoved_statistics
+
     def recover_result(self, result, output_data):
-        if 'predictions' in result:
-            result['predictions'] = self.recover_prediction_data(
-                result['predictions'], output_data
-            )
-        if 'expectations' in result:
-            result['expectations'] = self.recover_expectation_data(
-                result['expectations'], output_data
-            )
+        result['predictions'] = self.recover_prediction_data(
+            result.get('predictions'), output_data
+        )
+        result['expectations'] = self.recover_expectation_data(
+            result.get('expectations'), output_data
+        )
+        result['statistics'] = self.recover_statistics(
+            result.get('statistics')
+        )
         result['device_type_mapping'] = (
-            self.generate_output_nodes_device_type_mapping()
+            self.output_nodes_device_type_mapping
         )
         result['device_type_types'] = (
-            self.generate_output_nodes_device_type_types()
+            self.output_nodes_device_type_types
         )
+        result['model_type'] = self.builder.name
         return result
 
     def clean_input_data(self, input_data):
-        return input_data.dropna()
+        if input_data is not None:
+            input_data = input_data.dropna()
+        return input_data
 
     def clean_output_data(self, output_data):
-        return output_data.dropna()
+        if output_data is not None:
+            output_data = output_data.dropna()
+        return output_data
 
     def clean_data(self, input_data, output_data):
         logger.debug('clean data')
@@ -590,9 +760,8 @@ class BaseModelType(object):
             total = total.dropna()
             input_data = total['input']
             output_data = total['output']
-        elif input_data is not None:
+        else:
             input_data = self.clean_input_data(input_data)
-        elif output_data is not None:
             output_data = self.clean_output_data(output_data)
         return input_data, output_data
 
@@ -610,8 +779,6 @@ class BaseModelType(object):
 
     def merge_data_by_node(self, data, node, merged_data={}):
         node_data = None
-        if 'original_node' in node:
-            node = node['original_node']
         node_key = self.get_node_key(node)
         if 'sub_nodes' in node:
             sub_node_dataframe = {}
@@ -634,18 +801,18 @@ class BaseModelType(object):
             merged_data[node_key] = node_data
 
     def merge_input_data(self, input_data):
-        logger.debug('merge input data: %s', input_data.columns)
         if input_data is not None:
+            logger.debug('merge input data: %s', input_data.columns)
             input_data = self.merge_data_by_nodes(
-                input_data, self.input_nodes
+                input_data, self.original_input_nodes
             )
         return input_data
 
     def merge_output_data(self, output_data):
-        logger.debug('merge output data: %s', output_data.columns)
         if output_data is not None:
+            logger.debug('merge output data: %s', output_data.columns)
             output_data = self.merge_data_by_nodes(
-                output_data, self.output_nodes
+                output_data, self.original_output_nodes
             )
         return output_data
 
@@ -685,20 +852,21 @@ class BaseModelType(object):
         return pd.DataFrame(transformed_data)
 
     def transform_input_data(self, input_data):
-        logger.debug('transform input data: %s', input_data.columns)
         if input_data is not None:
+            logger.debug('transform input data: %s', input_data.columns)
             input_data = self.transform_data_by_nodes(
                 input_data, self.input_nodes
             )
-        logger.debug('transformed input data: %s', input_data.columns)
+            logger.debug('transformed input data: %s', input_data.columns)
         return input_data
 
     def transform_output_data(self, output_data):
-        logger.debug('tranform output data: %s', output_data.columns)
         if output_data is not None:
+            logger.debug('transform output data: %s', output_data.columns)
             output_data = self.transform_data_by_nodes(
                 output_data, self.output_nodes
             )
+            logger.debug('transformed output data: %s', output_data.columns)
         return output_data
 
     def transform_data(self, input_data, output_data):
@@ -742,16 +910,17 @@ class BaseModelType(object):
     def detransform_data(
         self, transformed_output_data, output_data
     ):
-        logger.debug('detransform data: %s', transformed_output_data.columns)
-        if (
-            transformed_output_data is not None and
-            output_data is not None
-        ):
-            output_data = self.detransform_data_by_nodes(
-                transformed_output_data,
-                output_data, self.output_nodes
-            )
-        logger.debug('detransformed data: %s', output_data.columns)
+        if output_data is not None:
+            output_data = output_data[self.original_output_node_keys]
+            if transformed_output_data is not None:
+                logger.debug(
+                    'detransform data: %s', transformed_output_data.columns
+                )
+                output_data = self.detransform_data_by_nodes(
+                    transformed_output_data,
+                    output_data, self.output_nodes
+                )
+            logger.debug('detransformed data: %s', output_data.columns)
         return output_data
 
     def process_data(self, input_data, output_data):
@@ -767,27 +936,35 @@ class BaseModelType(object):
         )
         return input_data, output_data
 
-    def train(self, starttime=None, endtime=None, data=None):
-        logger.debug('%s train model', self)
+    def train(
+        self, starttime=None, endtime=None, data=None,
+        force=True
+    ):
+        logger.debug('%s train model force=%s', self, force)
         self.load_built()
-        try:
-            input_data, output_data = self.get_data(
-                starttime=starttime, endtime=endtime, data=data
+        if force or not self.trained:
+            try:
+                input_data, output_data = self.get_data(
+                    starttime=starttime, endtime=endtime, data=data
+                )
+                (
+                    processed_input_data, processed_output_data
+                ) = self.process_data(
+                    input_data, output_data
+                )
+                result = self.model.train(
+                    processed_input_data, processed_output_data
+                )
+                self.save_trained()
+                result = self.recover_result(result, output_data)
+                return result
+            except Exception as error:
+                logger.exception(error)
+                raise error
+        else:
+            logger.debug(
+                '%s train model is not forced and is already trained', self
             )
-            (
-                processed_input_data, processed_output_data
-            ) = self.process_data(
-                input_data, output_data
-            )
-            result = self.model.train(
-                processed_input_data, processed_output_data
-            )
-            self.save_trained()
-            result = self.recover_result(result, output_data)
-            return result
-        except Exception as error:
-            logger.exception(error)
-            raise error
 
     def test(self, starttime=None, endtime=None, data=None):
         logger.debug('%s test model', self)
@@ -816,12 +993,11 @@ class BaseModelType(object):
         try:
             input_data, output_data = self.get_data(
                 starttime=starttime, endtime=endtime, data=data,
-                get_output=False
             )
             (
                 processed_input_data, processed_output_data
-            ) = self.processed_data(
-                input_data, output_data
+            ) = self.process_data(
+                input_data, None
             )
             result = self.model.apply(
                 processed_input_data
