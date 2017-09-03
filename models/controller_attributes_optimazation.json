@@ -8,15 +8,14 @@
         },
         "power_supply_attribute": {
             "power": []
-        }
+        },
+        "controller_power_supply_attribute": {"power": []}
     },
     "outputs": {
         "sensor_attribute": {
             "temperature": [], "humidity": []
-        }
+        },
+        "controller_power_supply_attribute": {"power": []}
     },
-    "nodes": "sensor_attributes_prediction_nodes.json",
-    "model": "linear_regression",
-    "model_export": "sensor_attributes_prediction_export.json",
-    "model_params": {}
+    "nodes": "controller_attributes_optimazation_nodes.json"
 }

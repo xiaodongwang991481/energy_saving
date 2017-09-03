@@ -1,4 +1,3 @@
-
 import abc
 # from abc import abstractmethod
 import datetime
@@ -6,6 +5,7 @@ import logging
 import os
 import os.path
 import pandas as pd
+import shutil
 import simplejson as json
 import six
 
@@ -59,14 +59,26 @@ class BaseModelType(object):
             'model type %s config: %s',
             self.builder.name, self.config
         )
-        self.set_built(False)
-        self.set_trained(False)
+        self.built = False
+        self.trained = False
+        self.model_path = None
+        self.try_load_built()
+        if self.built:
+            self.try_load_trained()
 
-    def set_built(self, built):
-        self.built = built
+    def try_load_built(self):
+        if not self.is_built():
+            try:
+                self.load_built()
+            except Exception:
+                logger.error('failed to load built')
 
-    def set_trained(self, trained):
-        self.trained = trained
+    def try_load_trained(self):
+        if not self.is_trained():
+            try:
+                self.load_trained()
+            except Exception:
+                logger.error('failed to load trained')
 
     def sum_sub_nodes_data(self, data):
         return data.sum(axis=1, skipna=False)
@@ -113,6 +125,12 @@ class BaseModelType(object):
             CONF.model_dir, filename
         )
 
+    def config_exists(self, filename):
+        config_file = self.get_file(
+            filename
+        )
+        return os.path.exists(config_file)
+
     def load_config(self, filename, raise_exception=True, default=None):
         config_file = self.get_file(
             filename
@@ -131,7 +149,7 @@ class BaseModelType(object):
         config_file = self.get_file(
             filename
         )
-        with open(config_file, 'w') as data_file:
+        with open(config_file, 'wb') as data_file:
             data_file.write(json.dumps(
                 data, ensure_ascii=False, indent=4, encoding='utf-8'
             ).encode('utf-8'))
@@ -148,22 +166,19 @@ class BaseModelType(object):
         self.output_nodes = nodes['output']
         self.initialize_nodes_relationship()
 
-    def load_built(self):
+    def load_built(self, force=False):
         built = self.is_built()
         logger.debug('load built? %s', built)
-        if not built:
+        if force or not built:
             self.load_nodes()
             self.create_model()
-            self.set_built(True)
             logger.debug('built model is loaded')
 
-    def load_trained(self):
-        self.load_built()
+    def load_trained(self, force=False):
         trained = self.is_trained()
         logger.debug('load trained? %s', trained)
-        if not trained:
+        if force or not trained:
             self.load_model()
-            self.set_trained(True)
             logger.debug('trained model is loaded')
 
     def save_model(self):
@@ -187,16 +202,16 @@ class BaseModelType(object):
 
     def save_built(self):
         logger.debug('save built model')
+        self.clear_trained()
         self.save_nodes()
-        self.set_built(True)
-        self.set_trained(False)
+        self.set_built()
 
     def save_trained(self):
         logger.debug('save trained model')
         self.save_model()
-        self.set_trained(True)
+        self.set_trained()
 
-    def _create_nodes(self, patterns):
+    def create_nodes_by_pattern(self, patterns):
         nodes = []
         logger.debug(
             'create nodes with patttern: %s', patterns
@@ -245,54 +260,65 @@ class BaseModelType(object):
             self.original_input_nodes,
             self.original_output_nodes
         ) = self.generate_original_nodes()
+        logger.debug(
+            'original input nodes: %s', self.original_input_nodes
+        )
+        logger.debug(
+            'original output nodes: %s', self.original_output_nodes
+        )
         (
             self.unmerged_input_nodes,
             self.unmerged_output_nodes
         ) = self.generate_unmerged_nodes()
-        (
-            self.input_node_keys,
-            self.output_node_keys
-        ) = self.generate_node_keys()
-        (
-            self.original_input_node_keys,
-            self.original_output_node_keys
-        ) = self.generate_original_node_keys()
-        (
-            self.input_nodes_device_type_types,
-            self.output_nodes_device_type_types
-        ) = self.generate_device_type_types()
-        (
-            self.input_nodes_device_type_mapping,
-            self.output_nodes_device_type_mapping
-        ) = self.generate_device_type_mapping()
-        (
-            self.input_node_key_mapping,
-            self.output_node_key_mapping
-        ) = self.generate_node_key_mapping()
+        logger.debug(
+            'unmerged input nodes: %s', self.unmerged_input_nodes
+        )
+        logger.debug(
+            'unmerged output nodes: %s', self.unmerged_output_nodes
+        )
 
-    def create_input_nodes(self, data=None):
-        if not data:
-            input_nodes = self._create_nodes(self.config['inputs'])
+    def create_input_nodes(self, pattern=None, data=None):
+        if data is None:
+            input_nodes = self.create_nodes_by_pattern(pattern)
         else:
             input_nodes = data
         return input_nodes
 
-    def create_output_nodes(self, data=None):
-        if not data:
-            output_nodes = self._create_nodes(self.config['outputs'])
+    def create_output_nodes(self, pattern=None, data=None):
+        if data is None:
+            output_nodes = self.create_nodes_by_pattern(pattern)
         else:
-            output_nodes = data['output_nodes']
+            output_nodes = data
         return output_nodes
 
+    def create_unmerged_nodes(self, config, data=None):
+        return (
+            self.create_input_nodes(
+                config['inputs'], data.get('input_nodes')
+            ),
+            self.create_output_nodes(
+                config['outputs'], data.get('output_nodes')
+            )
+        )
+
     def create_nodes(self, data=None):
-        data = data or {}
-        input_nodes = self.create_input_nodes(data.get('input_nodes'))
-        output_nodes = self.create_output_nodes(data.get('output_nodes'))
-        logger.debug(
-            'input nodes before processed: %s', input_nodes
+        input_nodes, output_nodes = self.create_unmerged_nodes(
+            self.config, data or {},
         )
         logger.debug(
-            'output nodes before processed: %s', output_nodes
+            'input nodes: %s', input_nodes
+        )
+        logger.debug(
+            'output nodes: %s', output_nodes
+        )
+        input_nodes, output_nodes = self.merge_nodes(
+            input_nodes, output_nodes
+        )
+        logger.debug(
+            'merged input nodes: %s', input_nodes
+        )
+        logger.debug(
+            'merged output nodes: %s', output_nodes
         )
         (
             self.input_nodes, self.output_nodes
@@ -309,11 +335,17 @@ class BaseModelType(object):
         self.model_params = self.config['model_params']
         self.model = self.model_builder.get_model(
             self, self.model_path, self.model_params,
-            input_nodes=self.input_node_keys,
-            output_nodes=self.output_node_keys,
-            input_nodes_device_type_types=self.input_nodes_device_type_types,
+            input_nodes=self.generate_node_keys_by_nodes(self.input_nodes),
+            output_nodes=self.generate_node_keys_by_nodes(self.output_nodes),
+            input_nodes_device_type_types=(
+                self.generate_device_type_types_by_nodes(
+                    self.original_input_nodes
+                )
+            ),
             output_nodes_device_type_types=(
-                self.output_nodes_device_type_types
+                self.generate_device_type_types_by_nodes(
+                    self.original_output_nodes
+                )
             ),
             reset=reset
         )
@@ -342,10 +374,11 @@ class BaseModelType(object):
         time_interval = self.metadata['time_interval']
         device_type_mapping = {}
         device_type_types = {}
+        node_keys = []
         for node in nodes:
-            device_type = node['device_type']
-            measurement = node['measurement']
-            device = node['device']
+            node_key = self.get_node_key(node)
+            device_type, measurement, device = node_key
+            node_keys.append(node_key)
             measurement_mapping = device_type_mapping.setdefault(
                 device_type, {}
             )
@@ -373,36 +406,39 @@ class BaseModelType(object):
             device_type_types=device_type_types
         )
         logger.debug(
-            'get data from timeseries %s %s',
-            starttime, endtime
+            'get data %s from timeseries %s %s: %s',
+            node_keys, starttime, endtime, response.columns
         )
-        return response
+        return response[node_keys]
 
     def _get_data_direct(self, data, nodes):
         dataframe = {}
-        expected_data = set()
+        node_keys = []
         for node in nodes:
-            device_type = node['device_type']
-            measurement = node['measurement']
-            device = node['device']
-            expected_data.add((device_type, measurement, device))
-        for device_type, device_type_data in six.iteritems(data):
-            for measurement, measurement_data in six.iteritems(
-                device_type_data
-            ):
-                for device, device_data in six.iteritems(measurement_data):
-                    key = (measurement, device_type, device)
-                    if key in expected_data:
+            node_key = self.get_node_key(node)
+            node_keys.append(node_key)
+        if isinstance(data, dict):
+            for device_type, device_type_data in six.iteritems(data):
+                for measurement, measurement_data in six.iteritems(
+                    device_type_data
+                ):
+                    for device, device_data in six.iteritems(measurement_data):
+                        key = (measurement, device_type, device)
                         times, values = zip(*device_data.items())
                         dataframe[key] = pd.Series(values, index=times)
-        return pd.DataFrame(dataframe)
+            data = pd.DataFrame(dataframe)
+        logger.debug(
+            'get data %s from directly: %s',
+            node_keys, data.columns
+        )
+        return data[node_keys]
 
     def get_input_data(
         self, starttime=None, endtime=None, data=None
     ):
         input_nodes = self.unmerged_input_nodes
         logger.debug('get data input nodes: %s', input_nodes)
-        if not data:
+        if data is None:
             with database.influx_session(dataframe=True) as session:
                 input_data = self._get_data_from_timeseries(
                     session,
@@ -424,7 +460,7 @@ class BaseModelType(object):
     ):
         output_nodes = self.unmerged_output_nodes
         logger.debug('get data output nodes: %s', output_nodes)
-        if not data:
+        if data is None:
             with database.influx_session(dataframe=True) as session:
                 output_data = self._get_data_from_timeseries(
                     session,
@@ -434,7 +470,7 @@ class BaseModelType(object):
         else:
             output_data = self._get_data_direct(
                 data,
-                self.output_nodes
+                output_nodes
             )
         if output_data is not None:
             logger.debug('output data columns: %s', output_data.columns)
@@ -458,16 +494,30 @@ class BaseModelType(object):
                 starttime=starttime, endtime=endtime,
                 data=data.get('output_data')
             )
-        input_data, output_data = self.merge_data(
-            input_data, output_data
-        )
         return input_data, output_data
 
     def is_built(self):
         return self.built
 
     def is_trained(self):
-        return self.is_built() and self.trained
+        return self.trained
+
+    def clear_built(self):
+        node_path = self.get_file(self.config['nodes'])
+        if os.path.exists(node_path):
+            os.remove(node_path)
+        self.built = False
+
+    def set_built(self):
+        self.built = True
+
+    def clear_trained(self):
+        if self.model_path and os.path.exists(self.model_path):
+            shutil.rmtree(self.model_path)
+        self.trained = False
+
+    def set_trained(self):
+        self.trained = True
 
     def unique_nodes(self, nodes):
         new_nodes = []
@@ -489,6 +539,18 @@ class BaseModelType(object):
         return (
             self.process_input_nodes(input_nodes),
             self.process_output_nodes(output_nodes)
+        )
+
+    def merge_input_nodes(self, input_nodes):
+        return self.unique_nodes(input_nodes)
+
+    def merge_output_nodes(self, output_nodes):
+        return self.unique_nodes(output_nodes)
+
+    def merge_nodes(self, input_nodes, output_nodes):
+        return (
+            self.merge_input_nodes(input_nodes),
+            self.merge_output_nodes(output_nodes)
         )
 
     def normalize_data_by_node(self, data, node, normalized_data={}):
@@ -574,22 +636,6 @@ class BaseModelType(object):
             devices.append(device)
         return device_type_mapping
 
-    def generate_input_nodes_device_type_mapping(self):
-        return self.generate_device_type_mapping_by_nodes(
-            self.original_input_nodes
-        )
-
-    def generate_output_nodes_device_type_mapping(self):
-        return self.generate_device_type_mapping_by_nodes(
-            self.original_output_nodes
-        )
-
-    def generate_device_type_mapping(self):
-        return (
-            self.generate_input_nodes_device_type_mapping(),
-            self.generate_output_nodes_device_type_mapping()
-        )
-
     def generate_device_type_types_by_nodes(self, nodes):
         device_type_types = {}
         for node in nodes:
@@ -601,33 +647,6 @@ class BaseModelType(object):
             )
             measurement_types[measurement] = measurement_type
         return device_type_types
-
-    def generate_input_nodes_device_type_types(self):
-        return self.generate_device_type_types_by_nodes(
-            self.original_input_nodes)
-
-    def generate_output_nodes_device_type_types(self):
-        return self.generate_device_type_types_by_nodes(
-            self.original_output_nodes
-        )
-
-    def generate_device_type_types(self):
-        return (
-            self.generate_input_nodes_device_type_types(),
-            self.generate_output_nodes_device_type_types()
-        )
-
-    def generate_input_node_keys(self):
-        return self.generate_node_keys_by_nodes(self.input_nodes)
-
-    def generate_output_node_keys(self):
-        return self.generate_node_keys_by_nodes(self.output_nodes)
-
-    def generate_node_keys(self):
-        return (
-            self.generate_input_node_keys(),
-            self.generate_output_node_keys()
-        )
 
     def generate_original_nodes_by_nodes(self, nodes):
         new_nodes = []
@@ -674,51 +693,33 @@ class BaseModelType(object):
             self.generate_unmerged_output_nodes()
         )
 
-    def generate_original_input_node_keys(self):
-        return self.generate_node_keys_by_nodes(self.original_input_nodes)
-
     def generate_node_keys_by_nodes(self, nodes):
         return [self.get_node_key(node) for node in nodes]
-
-    def generate_original_output_node_keys(self):
-        return self.generate_node_keys_by_nodes(self.original_output_nodes)
-
-    def generate_original_node_keys(self):
-        return (
-            self.generate_original_input_node_keys(),
-            self.generate_original_output_node_keys()
-        )
 
     def generate_node_key_mapping_by_nodes(self, nodes):
         return {
             self.get_node_key(node): node for node in nodes
         }
 
-    def generate_input_node_key_mapping(self):
-        return self.generate_node_key_mapping_by_nodes(self.input_nodes)
-
-    def generate_output_node_key_mapping(self):
-        return self.generate_node_key_mapping_by_nodes(self.output_nodes)
-
-    def generate_node_key_mapping(self):
-        return (
-            self.generate_input_node_key_mapping(),
-            self.generate_output_node_key_mapping()
-        )
-
     def recover_prediction_data(self, transformed_data, output_data):
         return self.recover_data(transformed_data, output_data)
 
     def recover_expectation_data(self, transformed_data, output_data):
         if output_data is not None:
-            output_data = output_data[self.original_output_node_keys]
+            node_keys = self.generate_node_keys_by_nodes(
+                self.original_output_nodes
+            )
+            output_data = output_data[node_keys]
         return output_data
 
     def recover_statistics(self, statistics):
         recoved_statistics = {}
+        node_key_mapping = self.generate_node_key_mapping_by_nodes(
+            self.output_nodes
+        )
         if statistics:
             for key, item in six.iteritems(statistics):
-                node = self.output_node_key_mapping[key]
+                node = node_key_mapping[key]
                 if 'original_node' in node:
                     node = node['original_node']
                 key = self.get_node_key(node)
@@ -736,10 +737,14 @@ class BaseModelType(object):
             result.get('statistics')
         )
         result['device_type_mapping'] = (
-            self.output_nodes_device_type_mapping
+            self.generate_device_type_mapping_by_nodes(
+                self.original_output_nodes
+            )
         )
         result['device_type_types'] = (
-            self.output_nodes_device_type_types
+            self.generate_device_type_types_by_nodes(
+                self.original_output_nodes
+            )
         )
         result['model_type'] = self.builder.name
         return result
@@ -784,7 +789,7 @@ class BaseModelType(object):
     def merge_data_by_node(self, data, node, merged_data={}):
         node_data = None
         node_key = self.get_node_key(node)
-        if 'sub_nodes' in node:
+        if node_key not in data and 'sub_nodes' in node:
             sub_node_dataframe = {}
             sub_node_keys = []
             for sub_node in node['sub_nodes']:
@@ -833,7 +838,7 @@ class BaseModelType(object):
     def transform_data_by_node(self, data, node, transformed_data={}):
         node_key = self.get_node_key(node)
         node_data = None
-        if 'original_node' in node:
+        if node_key not in data and 'original_node' in node:
             original_node = node['original_node']
             original_node_key = self.get_node_key(original_node)
             logger.debug(
@@ -915,7 +920,10 @@ class BaseModelType(object):
         self, transformed_output_data, output_data
     ):
         if output_data is not None:
-            output_data = output_data[self.original_output_node_keys]
+            node_keys = self.generate_node_keys_by_nodes(
+                self.original_output_nodes
+            )
+            output_data = output_data[node_keys]
             if transformed_output_data is not None:
                 logger.debug(
                     'detransform data: %s', transformed_output_data.columns
@@ -946,21 +954,24 @@ class BaseModelType(object):
     ):
         logger.debug('%s train model force=%s', self, force)
         self.load_built()
-        if force or not self.trained:
+        if force or not self.is_trained():
             try:
                 input_data, output_data = self.get_data(
                     starttime=starttime, endtime=endtime, data=data
                 )
+                merged_input_data, merged_output_data = self.merge_data(
+                    input_data, output_data
+                )
                 (
                     processed_input_data, processed_output_data
                 ) = self.process_data(
-                    input_data, output_data
+                    merged_input_data, merged_output_data
                 )
                 result = self.model.train(
                     processed_input_data, processed_output_data
                 )
                 self.save_trained()
-                result = self.recover_result(result, output_data)
+                result = self.recover_result(result, merged_output_data)
                 return result
             except Exception as error:
                 logger.exception(error)
@@ -972,20 +983,24 @@ class BaseModelType(object):
 
     def test(self, starttime=None, endtime=None, data=None):
         logger.debug('%s test model', self)
+        self.load_built()
         self.load_trained()
         try:
             input_data, output_data = self.get_data(
                 starttime=starttime, endtime=endtime, data=data
             )
+            merged_input_data, merged_output_data = self.merge_data(
+                input_data, output_data
+            )
             (
                 processed_input_data, processed_output_data
             ) = self.process_data(
-                input_data, output_data
+                merged_input_data, merged_output_data
             )
             result = self.model.test(
                 processed_input_data, processed_output_data
             )
-            result = self.recover_result(result, output_data)
+            result = self.recover_result(result, merged_output_data)
             return result
         except Exception as error:
             logger.exception(error)
@@ -993,20 +1008,24 @@ class BaseModelType(object):
 
     def apply(self, starttime=None, endtime=None, data=None):
         logger.debug('%s apply model', self)
+        self.laod_built()
         self.load_trained()
         try:
             input_data, output_data = self.get_data(
                 starttime=starttime, endtime=endtime, data=data,
             )
+            merged_input_data, merged_output_data = self.merge_data(
+                input_data, None
+            )
             (
                 processed_input_data, processed_output_data
             ) = self.process_data(
-                input_data, None
+                merged_input_data, None
             )
             result = self.model.apply(
                 processed_input_data
             )
-            result = self.recover_result(result, output_data)
+            result = self.recover_result(result, merged_output_data)
             return result
         except Exception as error:
             logger.exception(error)

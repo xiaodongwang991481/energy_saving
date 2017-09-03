@@ -9,7 +9,7 @@ manager = model_type_builder_manager.manager
 
 
 class ControllerAttrOptimazationModelType(
-    base_model_type_builder.BaseModelTYpe
+    base_model_type_builder.BaseModelType
 ):
     def __init__(self, datacenter, builder):
         super(ControllerAttrOptimazationModelType, self).__init__(
@@ -18,7 +18,7 @@ class ControllerAttrOptimazationModelType(
         self.pue_prediction_builder = (
             manager.get_model_type_builder('pue_prediction')
         )
-        self.sensor_attributes_predition_builder = (
+        self.sensor_attributes_prediction_builder = (
             manager.get_model_type_builder('sensor_attributes_prediction')
         )
         self.pue_prediction = (
@@ -53,18 +53,6 @@ class ControllerAttrOptimazationModelType(
     def save_model(self):
         pass
 
-    def is_built(self):
-        return (
-            self.pue_prediction.is_built() and
-            self.sensor_attributes_predition.is_built()
-        )
-
-    def is_trained(self):
-        return (
-            self.pue_prediction.is_trained() and
-            self.sensor_attributes_predition.is_trained()
-        )
-
     def create_nodes(self, data=None):
         self.input_nodes = self.unique_nodes(
             self.pue_prediction.input_nodes +
@@ -76,11 +64,96 @@ class ControllerAttrOptimazationModelType(
         )
         self.initialize_nodes_relationship()
 
+    def is_trained(self):
+        return (
+            self.is_built() and
+            self.pue_prediction.is_trained() and
+            self.sensor_attributes_predition.is_trained()
+        )
+
+    def save_trained(self):
+        pass
+
+    def recover_result(self, pue_result, sensor_attributes_result):
+        result = {}
+        result['statistics'] = {}
+        result['statistics'].update(pue_result.get('statistics') or {})
+        result['statistics'].update(
+            sensor_attributes_result.get('statistics') or {}
+        )
+        result['device_type_mapping'] = (
+            self.generate_device_type_mapping_by_nodes(
+                self.original_output_nodes
+            )
+        )
+        result['device_type_types'] = (
+            self.generate_device_type_types_by_nodes(
+                self.original_output_nodes
+            )
+        )
+        result['model_type'] = self.builder.name
+        return result
+
     def train(
         self, starttime=None, endtime=None, data=None,
         force=True
     ):
-        pass
+        logger.debug('%s train model force=%s', self, force)
+        self.load_built()
+        if force or not self.is_trained():
+            try:
+                input_data, output_data = self.get_data(
+                    starttime=starttime, endtime=endtime, data=data
+                )
+                merged_input_data, merged_output_data = self.merge_data(
+                    input_data, output_data
+                )
+                logger.debug(
+                    '%s input data: %s',
+                    self.pue_prediction.builder.name,
+                    merged_input_data.columns
+                )
+                logger.debug(
+                    '%s output data: %s',
+                    self.pue_prediction.builder.name,
+                    merged_output_data.columns
+                )
+                pue_result = self.pue_prediction.train(
+                    data={
+                        'input_data': input_data,
+                        'output_data': output_data
+                    }, force=force
+                )
+                logger.debug(
+                    '%s input data: %s',
+                    self.sensor_attributes_predition.builder.name,
+                    merged_input_data.columns
+                )
+                logger.debug(
+                    '%s output data: %s',
+                    self.sensor_attributes_predition.builder.name,
+                    merged_output_data.columns
+                )
+                sensor_attributes_result = (
+                    self.sensor_attributes_predition.train(
+                        data={
+                            'input_data': merged_input_data,
+                            'output_data': merged_output_data
+                        }, force=force
+                    )
+                )
+                self.save_trained()
+                result = self.recover_result(
+                    pue_result, sensor_attributes_result
+                )
+                return result
+            except Exception as error:
+                logger.exception(error)
+                raise error
+        else:
+            logger.debug(
+                '%s train model is not forced and is already trained', self
+            )
 
 
 class ControllerAttrOptimazationModelTypeBuilder(

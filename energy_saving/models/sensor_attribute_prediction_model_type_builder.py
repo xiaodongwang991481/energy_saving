@@ -12,22 +12,18 @@ class SensorAttrPredictionModelType(
     def process_output_nodes(self, output_nodes):
         processed_output_nodes = []
         for output_node in output_nodes:
-            device_type = output_node['device_type']
-            measurement = output_node['measurement']
-            if device_type == 'sensor_attribute':
-                output_node = {
-                    'device_type': device_type,
-                    'measurement': measurement,
-                    'device': 'shifted_%s' % output_node['device'],
-                    'unit': output_node['unit'],
-                    'type': output_node['type'],
-                    'mean': output_node['mean'],
-                    'deviation': output_node['deviation'],
-                    'transformer': 'shift',
-                    'detransformer': 'unshift',
-                    'original_node': output_node
-                }
-            processed_output_nodes.append(output_node)
+            processed_output_nodes.append({
+                'device_type': output_node['device_type'],
+                'measurement': output_node['measurement'],
+                'device': 'shifted_%s' % output_node['device'],
+                'unit': output_node['unit'],
+                'type': output_node['type'],
+                'mean': output_node['mean'],
+                'deviation': output_node['deviation'],
+                'transformer': 'shift',
+                'detransformer': 'unshift',
+                'original_node': output_node
+            })
         return processed_output_nodes
 
 

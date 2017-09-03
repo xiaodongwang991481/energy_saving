@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 class PUEPredictionModelType(
     base_model_type_builder.BaseModelType
 ):
-    def process_output_nodes(self, output_nodes):
+    def merge_output_nodes(self, output_nodes):
         device_unit = None
         device_typename = None
         device_mean = 0
@@ -28,7 +28,7 @@ class PUEPredictionModelType(
             device_mean += output_node['mean']
             device_deviation += output_node['deviation'] ** 2
             sub_nodes.append(output_node)
-        output_node = {
+        return [{
             'device_type': device_type,
             'measurement': measurement,
             'device': 'total',
@@ -38,20 +38,24 @@ class PUEPredictionModelType(
             'deviation': math.sqrt(device_deviation),
             'sub_nodes': sub_nodes,
             'sub_node_aggregator': 'sum'
-        }
-        processed_output_node = {
-            'device_type': device_type,
-            'measurement': measurement,
-            'device': 'shifted_%s' % output_node['device'],
-            'unit': output_node['unit'],
-            'type': output_node['type'],
-            'mean': output_node['mean'],
-            'deviation': output_node['deviation'],
-            'transformer': 'shift',
-            'detransformer': 'unshift',
-            'original_node': output_node
-        }
-        return [processed_output_node]
+        }]
+
+    def process_output_nodes(self, output_nodes):
+        processed_output_nodes = []
+        for output_node in output_nodes:
+            processed_output_nodes.append({
+                'device_type': output_node['device_type'],
+                'measurement': output_node['measurement'],
+                'device': 'shifted_%s' % output_node['device'],
+                'unit': output_node['unit'],
+                'type': output_node['type'],
+                'mean': output_node['mean'],
+                'deviation': output_node['deviation'],
+                'transformer': 'shift',
+                'detransformer': 'unshift',
+                'original_node': output_node
+            })
+        return processed_output_nodes
 
 
 class PUEPredictionModelTypeBuilder(
