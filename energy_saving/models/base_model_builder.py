@@ -72,13 +72,12 @@ class BaseModel(object):
         for column, estimator in six.iteritems(self.get_estimators()):
             prediction = self.get_prediction(estimator, x)
             predictions[column] = prediction
-        return {
-            'predictions': pd.DataFrame(predictions, index=input_data.index),
-            'model': self.model_builder.name
-        }
+        return pd.DataFrame(predictions, index=input_data.index),
 
     def test_data(
-        self, input_data, output_data
+        self, input_data, output_data,
+        generate_predictions=True,
+        generate_expectations=True
     ):
         x = self.get_inputs(input_data)
         predictions = {}
@@ -87,8 +86,10 @@ class BaseModel(object):
         for column, estimator in six.iteritems(self.get_estimators()):
             prediction = self.get_prediction(estimator, x)
             expected = self.get_output(output_data, column)
-            predictions[column] = prediction
-            expectations[column] = expected
+            if generate_predictions:
+                predictions[column] = prediction
+            if generate_expectations:
+                expectations[column] = expected
             statistics[column] = {
                 'MSE': self.get_test_result_mse(
                     prediction, expected
@@ -97,14 +98,17 @@ class BaseModel(object):
                     prediction, expected
                 )
             }
-        return {
-            'predictions': pd.DataFrame(predictions, index=output_data.index),
-            'expectations': pd.DataFrame(
+        result = {}
+        if generate_predictions:
+            result['predictions'] = pd.DataFrame(
+                predictions, index=input_data.index
+            )
+        if generate_expectations:
+            result['expectations'] = pd.DataFrame(
                 expectations, index=output_data.index
-            ),
-            'statistics': statistics,
-            'model': self.model_builder.name
-        }
+            )
+        result['statistics'] = statistics
+        return result
 
     def create_estimator(self, model_path):
         return None
@@ -143,7 +147,8 @@ class BaseModel(object):
         return input_data[column].value
 
     def train(
-        self, input_data, output_data
+        self, input_data, output_data,
+        generate_predictions=True, generate_expectations=True
     ):
         x = self.get_inputs(input_data)
         for column, estimator in six.iteritems(self.get_estimators()):
@@ -159,12 +164,19 @@ class BaseModel(object):
                 steps=self.model_params.get('steps', 1000)
             )
         return self.test_data(
-            input_data, output_data
+            input_data, output_data,
+            generate_predictions=generate_predictions,
+            generate_expectations=generate_expectations
         )
 
-    def test(self, input_data, output_data):
+    def test(
+        self, input_data, output_data,
+        generate_predictions=True, generate_expectations=True
+    ):
         return self.test_data(
-            input_data, output_data
+            input_data, output_data,
+            generate_predictions=generate_predictions,
+            generate_expectations=generate_expectations
         )
 
     def apply(self, input_data):

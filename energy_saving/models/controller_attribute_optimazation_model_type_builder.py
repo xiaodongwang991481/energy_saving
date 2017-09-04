@@ -74,7 +74,7 @@ class ControllerAttrOptimazationModelType(
     def save_trained(self):
         pass
 
-    def recover_result(self, pue_result, sensor_attributes_result):
+    def merge_test_result(self, pue_result, sensor_attributes_result):
         result = {}
         result['statistics'] = {}
         result['statistics'].update(pue_result.get('statistics') or {})
@@ -92,11 +92,13 @@ class ControllerAttrOptimazationModelType(
             )
         )
         result['model_type'] = self.builder.name
+        result['model'] = None
         return result
 
     def train(
         self, starttime=None, endtime=None, data=None,
-        force=True
+        force=True, filter_data=True, merge_data=True, process_data=True,
+        generate_predictions=True, generate_expectations=True
     ):
         logger.debug('%s train model force=%s', self, force)
         self.load_built()
@@ -105,45 +107,42 @@ class ControllerAttrOptimazationModelType(
                 input_data, output_data = self.get_data(
                     starttime=starttime, endtime=endtime, data=data
                 )
-                merged_input_data, merged_output_data = self.merge_data(
-                    input_data, output_data
-                )
-                logger.debug(
-                    '%s input data: %s',
-                    self.pue_prediction.builder.name,
-                    merged_input_data.columns
-                )
-                logger.debug(
-                    '%s output data: %s',
-                    self.pue_prediction.builder.name,
-                    merged_output_data.columns
-                )
+                if filter_data:
+                    input_data, output_data = self.filter_data(
+                        input_data, output_data
+                    )
+                if merge_data:
+                    input_data, output_data = self.merge_data(
+                        input_data, output_data
+                    )
+                if process_data:
+                    (
+                        input_data, output_data
+                    ) = self.process_data(
+                        input_data, output_data
+                    )
                 pue_result = self.pue_prediction.train(
                     data={
                         'input_data': input_data,
                         'output_data': output_data
-                    }, force=force
-                )
-                logger.debug(
-                    '%s input data: %s',
-                    self.sensor_attributes_predition.builder.name,
-                    merged_input_data.columns
-                )
-                logger.debug(
-                    '%s output data: %s',
-                    self.sensor_attributes_predition.builder.name,
-                    merged_output_data.columns
+                    }, force=force,
+                    filter_data=False, merge_data=False, process_data=False,
+                    generate_predictions=False, generate_expectations=False
                 )
                 sensor_attributes_result = (
                     self.sensor_attributes_predition.train(
                         data={
-                            'input_data': merged_input_data,
-                            'output_data': merged_output_data
-                        }, force=force
+                            'input_data': input_data,
+                            'output_data': output_data
+                        }, force=force,
+                        filter_data=False, merge_data=False,
+                        process_data=False,
+                        generate_predictions=False,
+                        generate_expectations=False
                     )
                 )
                 self.save_trained()
-                result = self.recover_result(
+                result = self.merge_test_result(
                     pue_result, sensor_attributes_result
                 )
                 return result

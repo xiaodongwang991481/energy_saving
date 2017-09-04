@@ -92,7 +92,7 @@ def save_test_result(datacenter, test_result, result):
     device_type_mapping = result.get('device_type_mapping', {})
     device_type_types = result.get('device_type_types', {})
     statistics = result.get('statistics', {})
-    model = result.get('model', '')
+    model = result.get('model')
     model_type = result.get('model_type')
     with database.influx_session(dataframe=True) as session:
         if 'predictions' in result:
@@ -207,12 +207,28 @@ def apply_model(
     update_test_result_status(datacenter, test_result, 'pending')
     try:
         model_type_builder = manager.get_model_type_builder(model_type)
-        model_type_class = model_type_builder.get_model_type(datacenter)
-        result = model_type_class.apply(
+        model_type = model_type_builder.get_model_type(datacenter)
+        result = model_type.apply(
             starttime=starttime,
             endtime=endtime, data=data
         )
-        save_test_result(datacenter, test_result, result)
+        save_test_result(
+            datacenter, test_result, {
+                'predictions': result,
+                'device_type_types': (
+                    model_type.generate_device_type_types_by_nodes(
+                        model_type.original_output_nodes
+                    )
+                ),
+                'device_type_types': (
+                    model_type.generate_device_type_types_by_nodes(
+                        model_type.original_output_nodes
+                    )
+                ),
+                'model_type': model_type.builder.name,
+                'model': model_type.model_builder.name
+            }
+        )
         update_test_result_status(datacenter, test_result, 'success')
     except Exception as error:
         logger.exception(error)
