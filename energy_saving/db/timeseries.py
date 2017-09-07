@@ -25,6 +25,7 @@ else:
 def _get_attribute_dict(attribute):
     return {
         'devices': [],
+        'properties': {},
         'device_properties': {},
         'attribute': {
             'type': attribute.type,
@@ -61,6 +62,7 @@ def _set_attribute_dict(attribute, data):
 def _get_parameter_dict(parameter):
     return {
         'devices': [],
+        'properties': {},
         'device_properties': {},
         'attribute': {
             'type': parameter.type,
@@ -87,12 +89,13 @@ def get_sensor_attributes(datacenter):
     for attribute in datacenter.sensor_attributes:
         result[attribute.name] = _get_attribute_dict(attribute)
         devices = result[attribute.name]['devices']
+        properties = result[attribute.name]['properties']
+        properties.update(attribute.properties or {})
         device_properties = result[attribute.name]['device_properties']
         for data in attribute.attribute_data:
             device = data.sensor_name
             devices.append(device)
             device_properties[device] = {}
-            device_properties[device].update(attribute.properties or {})
             device_properties[device].update(data.sensor.properties or {})
             device_properties[device].update(data.properties or {})
     return result
@@ -109,12 +112,13 @@ def get_controller_attributes(datacenter):
     for attribute in datacenter.controller_attributes:
         result[attribute.name] = _get_attribute_dict(attribute)
         devices = result[attribute.name]['devices']
+        properties = result[attribute.name]['properties']
+        properties.update(attribute.properties or {})
         device_properties = result[attribute.name]['device_properties']
         for data in attribute.attribute_data:
             device = data.controller_name
             devices.append(device)
             device_properties[device] = {}
-            device_properties[device].update(attribute.properties or {})
             device_properties[device].update(data.controller.properties or {})
             device_properties[device].update(data.properties or {})
     return result
@@ -131,12 +135,13 @@ def get_power_supply_attributes(datacenter):
     for attribute in datacenter.power_supply_attributes:
         result[attribute.name] = _get_attribute_dict(attribute)
         devices = result[attribute.name]['devices']
+        properties = result[attribute.name]['properties']
+        properties.update(attribute.properties or {})
         device_properties = result[attribute.name]['device_properties']
         for data in attribute.attribute_data:
             device = data.power_supply_name
             devices.append(device)
             device_properties[device] = {}
-            device_properties[device].update(attribute.properties or {})
             device_properties[device].update(
                 data.power_supply.properties or {}
             )
@@ -155,12 +160,13 @@ def get_controller_power_supply_attributes(datacenter):
     for attribute in datacenter.controller_power_supply_attributes:
         result[attribute.name] = _get_attribute_dict(attribute)
         devices = result[attribute.name]['devices']
+        properties = result[attribute.name]['properties']
+        properties.update(attribute.properties or {})
         device_properties = result[attribute.name]['device_properties']
         for data in attribute.attribute_data:
             device = data.controller_power_supply_name
             devices.append(device)
             device_properties[device] = {}
-            device_properties[device].update(attribute.properties or {})
             device_properties[device].update(
                 data.controller_power_supply.properties or {}
             )
@@ -179,12 +185,13 @@ def get_environment_sensor_attributes(datacenter):
     for attribute in datacenter.environment_sensor_attributes:
         result[attribute.name] = _get_attribute_dict(attribute)
         devices = result[attribute.name]['devices']
+        properties = result[attribute.name]['properties']
+        properties.update(attribute.properties or {})
         device_properties = result[attribute.name]['device_properties']
         for data in attribute.attribute_data:
             device = data.environment_sensor_name
             devices.append(device)
             device_properties[device] = {}
-            device_properties[device].update(attribute.properties or {})
             device_properties[device].update(
                 data.environment_sensor.properties or {}
             )
@@ -203,12 +210,13 @@ def get_controller_parameters(datacenter):
     for parameter in datacenter.controller_parameters:
         result[parameter.name] = _get_parameter_dict(parameter)
         devices = result[parameter.name]['devices']
+        properties = result[parameter.name]['properties']
+        properties.update(parameter.properties or {})
         device_properties = result[parameter.name]['device_properties']
         for data in parameter.parameter_data:
             device = data.controller_name
             devices.append(device)
             device_properties[device] = {}
-            device_properties[device].update(parameter.properties or {})
             device_properties[device].update(
                 data.controller.properties or {}
             )
