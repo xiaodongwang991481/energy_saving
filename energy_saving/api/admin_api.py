@@ -61,6 +61,8 @@ class BaseModelView(ModelView):
             name: column.name
             for name, column in six.iteritems(dict(model.__table__.columns))
         }
+        logger.debug('model %s columns: %s', model, self.column_list)
+        logger.debug('model %s column labels: %s', model, self.column_labels)
         self.form_columns = model.__table__.columns.keys()
         self.column_export_list = model.__table__.columns.keys()
         super(BaseModelView, self).__init__(model, session, *args, **kwargs)
