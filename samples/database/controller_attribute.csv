@@ -1,6 +1,6 @@
 type,unit,datacenter_name,name,properties
-continuous,%,openlab,humidity,{}
-continuous,C,openlab,temperature,{}
-continuous,%,openlab,cooling,{}
-continuous,%,openlab,flow,{}
-continuous,%,openlab,heating,{}
+continuous,%,openlab,humidity,{"read_protocol": "snmp"}
+continuous,C,openlab,temperature,{"read_protocol": "snmp"}
+continuous,%,openlab,cooling,{"read_protocol": "snmp"}
+continuous,%,openlab,flow,{"read_protocol": "snmp"}
+continuous,%,openlab,heating,{"read_protocol": "snmp"}

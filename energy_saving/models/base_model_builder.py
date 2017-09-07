@@ -144,7 +144,7 @@ class BaseModel(object):
         }
 
     def get_input(self, input_data, column):
-        return input_data[column].value
+        return input_data[column].values
 
     def train(
         self, input_data, output_data,

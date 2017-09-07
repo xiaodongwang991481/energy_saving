@@ -322,6 +322,7 @@ class PowerSupplyAttrData(BASE, HelperMixin):
         primary_key=True
     )
     name = Column(String(36), primary_key=True)
+    properties = Column(JSON)
     __table_args__ = (
         ForeignKeyConstraint(
             ['datacenter_name'],
@@ -427,6 +428,7 @@ class ControllerPowerSupplyAttrData(BASE, HelperMixin):
         primary_key=True
     )
     name = Column(String(36), primary_key=True)
+    properties = Column(JSON)
     __table_args__ = (
         ForeignKeyConstraint(
             ['datacenter_name'],
@@ -536,6 +538,7 @@ class SensorAttrData(BASE, HelperMixin):
         primary_key=True
     )
     name = Column(String(36), primary_key=True)
+    properties = Column(JSON)
     __table_args__ = (
         ForeignKeyConstraint(
             ['datacenter_name'],
@@ -650,6 +653,7 @@ class ControllerAttrData(BASE, HelperMixin):
         primary_key=True
     )
     name = Column(String(36), primary_key=True)
+    properties = Column(JSON)
     __table_args__ = (
         ForeignKeyConstraint(
             ['datacenter_name'],
@@ -728,6 +732,7 @@ class ControllerParamData(BASE, HelperMixin):
         primary_key=True
     )
     name = Column(String(36), primary_key=True)
+    properties = Column(JSON)
     __table_args__ = (
         ForeignKeyConstraint(
             ['datacenter_name'],
@@ -833,6 +838,7 @@ class EnvironmentSensorAttrData(BASE, HelperMixin):
         primary_key=True
     )
     name = Column(String(36), primary_key=True)
+    properties = Column(JSON)
     __table_args__ = (
         ForeignKeyConstraint(
             ['datacenter_name'],

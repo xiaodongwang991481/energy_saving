@@ -38,7 +38,9 @@ def generate_controller(datacenter):
     output = [csv_header]
     for i in range(1, 29):
         output.append([
-            '{}', datacenter, '%s%d' % (controller_prefix, i), '{}'
+            '{}', datacenter,
+            '%s%d' % (controller_prefix, i),
+            '{}'
         ])
     writer.writerows(output)
     print(string_buffer.getvalue())
@@ -51,11 +53,14 @@ def generate_sensor(datacenter):
     string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
-    for i in range(1, 41):
-        output.append([
-            '{}', datacenter,
-            '%s%s' % (sensor_prefix, format(i, '02d')), '{}'
-        ])
+    for x in range(10):
+        for y in range(4):
+            i = 10 * y + x + 1
+            output.append([
+                '{"x": %s, "y": %s}' % (x, y), datacenter,
+                '%s%s' % (sensor_prefix, format(i, '02d')),
+                '{}'
+            ])
     writer.writerows(output)
     print(string_buffer.getvalue())
 

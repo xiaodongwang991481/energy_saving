@@ -1,42 +1,42 @@
 location,datacenter_name,name,properties
-{},openlab,TH01,{}
-{},openlab,TH02,{}
-{},openlab,TH03,{}
-{},openlab,TH04,{}
-{},openlab,TH05,{}
-{},openlab,TH06,{}
-{},openlab,TH07,{}
-{},openlab,TH08,{}
-{},openlab,TH09,{}
-{},openlab,TH10,{}
-{},openlab,TH11,{}
-{},openlab,TH12,{}
-{},openlab,TH13,{}
-{},openlab,TH14,{}
-{},openlab,TH15,{}
-{},openlab,TH16,{}
-{},openlab,TH17,{}
-{},openlab,TH18,{}
-{},openlab,TH19,{}
-{},openlab,TH20,{}
-{},openlab,TH21,{}
-{},openlab,TH22,{}
-{},openlab,TH23,{}
-{},openlab,TH24,{}
-{},openlab,TH25,{}
-{},openlab,TH26,{}
-{},openlab,TH27,{}
-{},openlab,TH28,{}
-{},openlab,TH29,{}
-{},openlab,TH30,{}
-{},openlab,TH31,{}
-{},openlab,TH32,{}
-{},openlab,TH33,{}
-{},openlab,TH34,{}
-{},openlab,TH35,{}
-{},openlab,TH36,{}
-{},openlab,TH37,{}
-{},openlab,TH38,{}
-{},openlab,TH39,{}
-{},openlab,TH40,{}
+"{""x"": 0, ""y"": 0}",openlab,TH01,{}
+"{""x"": 0, ""y"": 1}",openlab,TH11,{}
+"{""x"": 0, ""y"": 2}",openlab,TH21,{}
+"{""x"": 0, ""y"": 3}",openlab,TH31,{}
+"{""x"": 1, ""y"": 0}",openlab,TH02,{}
+"{""x"": 1, ""y"": 1}",openlab,TH12,{}
+"{""x"": 1, ""y"": 2}",openlab,TH22,{}
+"{""x"": 1, ""y"": 3}",openlab,TH32,{}
+"{""x"": 2, ""y"": 0}",openlab,TH03,{}
+"{""x"": 2, ""y"": 1}",openlab,TH13,{}
+"{""x"": 2, ""y"": 2}",openlab,TH23,{}
+"{""x"": 2, ""y"": 3}",openlab,TH33,{}
+"{""x"": 3, ""y"": 0}",openlab,TH04,{}
+"{""x"": 3, ""y"": 1}",openlab,TH14,{}
+"{""x"": 3, ""y"": 2}",openlab,TH24,{}
+"{""x"": 3, ""y"": 3}",openlab,TH34,{}
+"{""x"": 4, ""y"": 0}",openlab,TH05,{}
+"{""x"": 4, ""y"": 1}",openlab,TH15,{}
+"{""x"": 4, ""y"": 2}",openlab,TH25,{}
+"{""x"": 4, ""y"": 3}",openlab,TH35,{}
+"{""x"": 5, ""y"": 0}",openlab,TH06,{}
+"{""x"": 5, ""y"": 1}",openlab,TH16,{}
+"{""x"": 5, ""y"": 2}",openlab,TH26,{}
+"{""x"": 5, ""y"": 3}",openlab,TH36,{}
+"{""x"": 6, ""y"": 0}",openlab,TH07,{}
+"{""x"": 6, ""y"": 1}",openlab,TH17,{}
+"{""x"": 6, ""y"": 2}",openlab,TH27,{}
+"{""x"": 6, ""y"": 3}",openlab,TH37,{}
+"{""x"": 7, ""y"": 0}",openlab,TH08,{}
+"{""x"": 7, ""y"": 1}",openlab,TH18,{}
+"{""x"": 7, ""y"": 2}",openlab,TH28,{}
+"{""x"": 7, ""y"": 3}",openlab,TH38,{}
+"{""x"": 8, ""y"": 0}",openlab,TH09,{}
+"{""x"": 8, ""y"": 1}",openlab,TH19,{}
+"{""x"": 8, ""y"": 2}",openlab,TH29,{}
+"{""x"": 8, ""y"": 3}",openlab,TH39,{}
+"{""x"": 9, ""y"": 0}",openlab,TH10,{}
+"{""x"": 9, ""y"": 1}",openlab,TH20,{}
+"{""x"": 9, ""y"": 2}",openlab,TH30,{}
+"{""x"": 9, ""y"": 3}",openlab,TH40,{}
 

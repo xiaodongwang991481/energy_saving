@@ -1,2 +1,2 @@
 type,unit,datacenter_name,name,properties
-continuous,kw,openlab,power,{}
+continuous,kw,openlab,power,{"read_protocol": "snmp"}
