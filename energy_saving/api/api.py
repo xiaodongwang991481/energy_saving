@@ -1,9 +1,9 @@
 """Define all the RestfulAPI entry points."""
 import csv
+from io import StringIO
 import logging
 import simplejson as json
 import six
-import StringIO
 
 from oslo_config import cfg
 
@@ -1119,7 +1119,7 @@ def export_timeseries(datacenter):
     for keys in export_keys:
         row = rows[keys]
         output.append(row)
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     writer.writerows(output)
     return utils.make_csv_response(
@@ -1267,7 +1267,7 @@ def export_device_type_timeseries(datacenter, device_type):
     for keys in export_keys:
         row = rows[keys]
         output.append(row)
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     writer.writerows(output)
     return utils.make_csv_response(
@@ -1367,7 +1367,7 @@ def export_measurement_timeseries(datacenter, device_type, measurement):
     for timestamp in timestamps:
         row = rows[timestamp]
         output.append(row)
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     writer.writerows(output)
     return utils.make_csv_response(

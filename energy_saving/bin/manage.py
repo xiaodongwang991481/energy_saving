@@ -4,9 +4,9 @@
 from __future__ import print_function
 
 import csv
+from io import StringIO
 import os
 import os.path
-import StringIO
 import sys
 
 from flask_script import Manager
@@ -33,7 +33,7 @@ def list_config():
 def generate_controller(datacenter):
     controller_prefix = 'CRAC'
     csv_header = ["location", "datacenter_name", "name", "properties"]
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
     for i in range(1, 29):
@@ -48,7 +48,7 @@ def generate_controller(datacenter):
 def generate_sensor(datacenter):
     sensor_prefix = 'TH'
     csv_header = ["location", "datacenter_name", "name", "properties"]
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
     for i in range(1, 41):
@@ -64,7 +64,7 @@ def generate_sensor(datacenter):
 def generate_power_supply(datacenter):
     power_supply_prefix = 'PDF'
     csv_header = ["location", "datacenter_name", "name", "properties"]
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
     for i in range(1, 21):
@@ -82,7 +82,7 @@ def generate_controller_power_supply(datacenter):
     power_supply_prefix = '2AK'
     power_supply_suffix = '-B'
     csv_header = ["location", "datacenter_name", "name", "properties"]
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
     for i in range(1, 4):
@@ -116,7 +116,7 @@ def generate_controller_attribute_data(
     datacenter, controller_filename, controller_attribute_filename
 ):
     csv_header = ["datacenter_name", "controller_name", "name"]
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
     controller_names = _get_field_values(controller_filename, 'name')
@@ -137,7 +137,7 @@ def generate_controller_parameter_data(
     datacenter, controller_filename, controller_parameter_filename
 ):
     csv_header = ["datacenter_name", "controller_name", "name"]
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
     controller_names = _get_field_values(controller_filename, 'name')
@@ -158,7 +158,7 @@ def generate_sensor_attribute_data(
     datacenter, sensor_filename, sensor_attribute_filename
 ):
     csv_header = ["datacenter_name", "sensor_name", "name"]
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
     sensor_names = _get_field_values(sensor_filename, 'name')
@@ -179,7 +179,7 @@ def generate_power_supply_attribute_data(
     datacenter, power_supply_filename, power_supply_attribute_filename
 ):
     csv_header = ["datacenter_name", "power_supply_name", "name"]
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
     power_supply_names = _get_field_values(power_supply_filename, 'name')
@@ -201,7 +201,7 @@ def generate_controller_power_supply_attribute_data(
     controller_power_supply_attribute_filename
 ):
     csv_header = ["datacenter_name", "power_supply_name", "name"]
-    string_buffer = StringIO.StringIO()
+    string_buffer = StringIO()
     writer = csv.writer(string_buffer)
     output = [csv_header]
     controller_power_supply_names = _get_field_values(
